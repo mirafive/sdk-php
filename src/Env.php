@@ -9,8 +9,6 @@ use InvalidArgumentException;
 /** @internal Key and host from arguments or MIRAFIVE_* variables, as every MIRA FIVE SDK reads them. */
 final class Env
 {
-    public const string DEFAULT_HOST = 'https://events.mirafive.io';
-
     public static function key(string|false|null $key): string
     {
         return trim(($key ?? self::read('MIRAFIVE_SECRET_KEY')) ?: '');
@@ -18,7 +16,7 @@ final class Env
 
     public static function host(?string $host): string
     {
-        $host = $host ?? self::read('MIRAFIVE_HOST') ?? self::DEFAULT_HOST;
+        $host = $host ?? self::read('MIRAFIVE_HOST') ?? Mira::DEFAULT_HOST;
 
         if (preg_match('#^https?://[^/\s]+#i', $host) !== 1) {
             throw new InvalidArgumentException("The host needs a scheme, e.g. https://events.mirafive.io; got \"{$host}\".");

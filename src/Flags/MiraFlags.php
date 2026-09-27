@@ -74,6 +74,7 @@ final class MiraFlags
      * @param  string|false|null  $key  a server source's secret key; null reads MIRAFIVE_SECRET_KEY
      * @param  int  $refreshSeconds  at least 10
      * @param  string|array<array-key, mixed>|null  $document  a snapshot (JSON or decoded) used while none was fetched, if younger than 7 days
+     * @param  bool  $enabled  false: never fetches or looks anything up, so reads answer their fallbacks (or the snapshot)
      * @param  Mira|null  $mira  sends exposures of experiments counted on your server; defaults to a client on the same key
      * @param  (callable(MiraError): void)|null  $onError
      */
@@ -85,6 +86,7 @@ final class MiraFlags
         private readonly int $lookupTimeoutMs = 500,
         private readonly ?CacheInterface $cache = null,
         string|array|null $document = null,
+        private readonly bool $enabled = true,
         private ?Mira $mira = null,
         ?Transport $transport = null,
         ?callable $onError = null,
@@ -134,7 +136,7 @@ final class MiraFlags
         $anonymousId = $experiments && $anonymousId !== null ? Evaluator::usable(explode('.', $anonymousId)[0]) : null;
         $segments = match (true) {
             $document?->hasSegments() !== true => null,
-            ! $targeting, $userId === null && $anonymousId === null => Facts::UNAVAILABLE,
+            ! $this->enabled, ! $targeting, $userId === null && $anonymousId === null => Facts::UNAVAILABLE,
             default => $this->lookUp($userId, $anonymousId),
         };
 
@@ -186,7 +188,7 @@ final class MiraFlags
 
     private function refresh(): void
     {
-        if ($this->refused || ! $this->due()) {
+        if (! $this->enabled || $this->refused || ! $this->due()) {
             return;
         }
 
@@ -400,7 +402,7 @@ final class MiraFlags
 
         unset($this->exposed[$seen]);
         $this->exposed[$seen] = $now;
-        $mira = $this->mira ??= new Mira(key: $this->key, host: $this->host, transport: $this->transport, onError: $this->reporter->report(...));
+        $mira = $this->mira ??= new Mira(key: $this->key, host: $this->host, transport: $this->transport, onError: $this->reporter->report(...), enabled: $this->enabled);
 
         if ($mira->mode === Mode::Consentless) {
             return;

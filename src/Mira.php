@@ -13,6 +13,7 @@ use MiraFive\Http\StreamTransport;
 use MiraFive\Http\Transport;
 use Psr\Log\LoggerInterface;
 use Psr\SimpleCache\CacheInterface;
+use Throwable;
 use WeakReference;
 
 /**
@@ -27,6 +28,8 @@ final class Mira
 
     public const int MAX_BATCH_SIZE = 1000;
 
+    public const string DEFAULT_HOST = 'https://events.mirafive.io';
+
     public readonly string $host;
 
     private readonly string $key;
@@ -40,7 +43,7 @@ final class Mira
     /** @var list<array<string, mixed>> */
     private array $buffer = [];
 
-    private bool $flushesOnShutdown = false;
+    private bool $shutdownRegistered = false;
 
     private ?MiraFlags $flags = null;
 
@@ -49,6 +52,9 @@ final class Mira
      * @param  string|null  $host  null reads MIRAFIVE_HOST, else https://events.mirafive.io
      * @param  (callable(MiraError): void)|null  $onError  receives every delivery failure
      * @param  CacheInterface|null  $cache  shares the flag document between PHP processes
+     * @param  bool  $enabled  false: nothing leaves the process and no key is needed, but input is still checked
+     * @param  bool  $flushOnShutdown  false when the framework flushes on terminate
+     * @param  (Closure(string, string): void)|null  $handOff  receives buffered batches (body, batch id) instead of sending them
      * @param  (Closure(int): void)|null  $sleep  waits between retries, in milliseconds; for tests
      */
     public function __construct(
@@ -63,6 +69,10 @@ final class Mira
         ?callable $onError = null,
         ?LoggerInterface $logger = null,
         private readonly ?CacheInterface $cache = null,
+        public readonly bool $enabled = true,
+        private readonly bool $flushOnShutdown = true,
+        private readonly int $flagsRefreshSeconds = 30,
+        private readonly ?Closure $handOff = null,
         ?Closure $sleep = null,
     ) {
         if ($flushAt < 1 || $flushAt > self::MAX_BATCH_SIZE || $timeoutMs < 1 || $maxRetries < 0 || $maxRetryAfterMs < 0) {
@@ -158,7 +168,19 @@ final class Mira
 
         $batchId = $idempotencyKey === null ? BatchId::random() : BatchId::fromIdempotencyKey($idempotencyKey);
 
-        return $this->delivery->deliver($wire, $batchId, $this->mode);
+        return $this->enabled ? $this->delivery->deliver($wire, $batchId, $this->mode) : new Receipt($batchId, count($wire), 0);
+    }
+
+    /**
+     * Delivers a batch a hand-off encoded, with the usual retries. The key is this client's, never the message's.
+     *
+     * @throws MiraError
+     */
+    public function deliverPrepared(string $body): Receipt
+    {
+        [$batchId, $count] = Delivery::inspect($body);
+
+        return $this->enabled ? $this->delivery->post($body, $batchId) : new Receipt($batchId, $count, 0);
     }
 
     /** Sends the buffer. Failures go to onError (or the logger); nothing is thrown. */
@@ -178,7 +200,9 @@ final class Mira
         return $this->flags ??= new MiraFlags(
             key: $this->key,
             host: $this->host,
+            refreshSeconds: $this->flagsRefreshSeconds,
             cache: $this->cache,
+            enabled: $this->enabled,
             mira: $this,
             transport: $this->transport,
             onError: $this->reporter->report(...),
@@ -190,10 +214,14 @@ final class Mira
      */
     private function enqueue(array $event): void
     {
+        if (! $this->enabled) {
+            return;
+        }
+
         $this->buffer[] = $event;
 
-        if (! $this->flushesOnShutdown) {
-            $this->flushesOnShutdown = true;
+        if ($this->flushOnShutdown && ! $this->shutdownRegistered) {
+            $this->shutdownRegistered = true;
             // Weak, so a client dropped mid-request is flushed by its destructor and not kept alive until shutdown.
             $client = WeakReference::create($this);
             register_shutdown_function(static function () use ($client): void {
@@ -214,7 +242,14 @@ final class Mira
     private function deliverSplitting(array $events): void
     {
         try {
-            $this->delivery->deliver($events, BatchId::random(), $this->mode);
+            $batchId = BatchId::random();
+            $body = Delivery::encode($events, $batchId, $this->mode);
+
+            if ($this->handOff === null) {
+                $this->delivery->post($body, $batchId);
+            } else {
+                $this->handOver($this->handOff, $body, $batchId);
+            }
         } catch (MiraError $error) {
             if ($error->errorCode !== 'payload_too_large' || count($events) === 1) {
                 $this->reporter->report($error);
@@ -225,6 +260,20 @@ final class Mira
             $half = intdiv(count($events), 2);
             $this->deliverSplitting(array_slice($events, 0, $half));
             $this->deliverSplitting(array_slice($events, $half));
+        }
+    }
+
+    /**
+     * A hand-off that fails is reported like a failed delivery: flush() never throws.
+     *
+     * @param  Closure(string, string): void  $handOff
+     */
+    private function handOver(Closure $handOff, string $body, string $batchId): void
+    {
+        try {
+            $handOff($body, $batchId);
+        } catch (Throwable $exception) {
+            $this->reporter->report(new MiraError('unexpected', 'The hand-off failed: '.$exception->getMessage(), previous: $exception));
         }
     }
 

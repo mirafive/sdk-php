@@ -320,3 +320,114 @@ it('clamps page fields to the protocol lengths', function (): void {
     expect($page['url'])->toBe('https://shop.example/')
         ->and(mb_strlen($page['title']))->toBe(256);
 });
+
+it('hands buffered batches off instead of sending them, and a worker delivers them unchanged', function (): void {
+    $handedOff = [];
+    $transport = transport();
+    $mira = new Mira(key: KEY, transport: $transport, flushAt: 2, handOff: function (string $body, string $batchId) use (&$handedOff): void {
+        $handedOff[] = [$body, $batchId];
+    });
+
+    $mira->track('a');
+    $mira->track('b');
+    $mira->track('c');
+    $mira->flush();
+
+    expect($transport->requests)->toBeEmpty()
+        ->and($handedOff)->toHaveCount(2)
+        ->and(json_decode($handedOff[0][0], true)['batch'])->toBe($handedOff[0][1])
+        ->and(json_decode($handedOff[0][0], true)['events'])->toHaveCount(2);
+
+    $worker = client($workerTransport = transport(answer(503), accepted(2)));
+    $receipt = $worker->deliverPrepared($handedOff[0][0]);
+
+    expect($receipt->accepted)->toBe(2)
+        ->and($workerTransport->requests[0]['body'])->toBe($handedOff[0][0])
+        ->and($workerTransport->requests[1]['body'])->toBe($handedOff[0][0])
+        ->and($workerTransport->requests[0]['headers']['Authorization'])->toBe('Bearer '.KEY);
+});
+
+it('still sends send() batches immediately when a hand-off is set', function (): void {
+    $transport = transport(accepted());
+    $mira = new Mira(key: KEY, transport: $transport, handOff: fn (string $body, string $batchId) => throw new LogicException('not for send()'));
+
+    expect($mira->send([['name' => 'a']])->accepted)->toBe(1)
+        ->and($transport->requests)->toHaveCount(1);
+});
+
+it('reports a failing hand-off instead of throwing from flush', function (): void {
+    $errors = [];
+    $mira = new Mira(
+        key: KEY,
+        transport: transport(),
+        onError: function (MiraError $error) use (&$errors): void {
+            $errors[] = $error;
+        },
+        handOff: fn (string $body, string $batchId) => throw new RuntimeException('queue down'),
+    );
+
+    $mira->track('a');
+    $mira->flush();
+
+    expect($errors[0]->errorCode)->toBe('unexpected')
+        ->and($errors[0]->getMessage())->toContain('queue down');
+});
+
+it('refuses to deliver something that is not an encoded batch, and throws refusals', function (): void {
+    $transport = transport(answer(401, ['code' => 'unauthorized', 'detail' => 'unknown key']));
+    $mira = client($transport);
+
+    expect(fn () => $mira->deliverPrepared('{"events":[]}'))
+        ->toThrow(fn (MiraError $error) => expect($error->errorCode)->toBe('invalid_event'))
+        ->and($transport->requests)->toBeEmpty()
+        ->and(fn () => $mira->deliverPrepared('{"v":1,"batch":"b","mode":"full","events":[{"name":"a"}]}'))
+        ->toThrow(fn (MiraError $error) => expect($error->errorCode)->toBe('unauthorized'));
+});
+
+it('registers the shutdown flush only when asked to', function (bool $flushOnShutdown, string $expected): void {
+    $script = sprintf(<<<'PHP'
+        require %s;
+        $GLOBALS['mira'] = new MiraFive\Mira(key: 'k', flushOnShutdown: %s, handOff: function (): void { echo "flushed\n"; });
+        $GLOBALS['mira']->track('a');
+        register_shutdown_function(function (): void { echo "shutdown\n"; });
+        PHP, var_export(dirname(__DIR__, 2).'/vendor/autoload.php', true), var_export($flushOnShutdown, true));
+
+    expect((string) shell_exec(escapeshellarg(PHP_BINARY).' -r '.escapeshellarg($script)))->toBe($expected);
+})->with([
+    'registered' => [true, "flushed\nshutdown\n"],
+    'left to the framework (the destructor still flushes)' => [false, "shutdown\nflushed\n"],
+]);
+
+it('sends nothing and needs no key when disabled, but still checks input', function (): void {
+    $transport = transport();
+    $mira = new Mira(key: false, transport: $transport, enabled: false);
+
+    $mira->track('a', userId: 'u_42');
+    $mira->identify('u_42');
+    $mira->flush();
+    $receipt = $mira->send([['name' => 'a'], ['name' => 'b']], idempotencyKey: 'order-981');
+    $prepared = $mira->deliverPrepared('{"v":1,"batch":"b","mode":"full","events":[{"name":"a"}]}');
+    $user = $mira->flags()->for(userId: 'u_42');
+
+    expect($transport->requests)->toBeEmpty()
+        ->and($receipt)->toEqual(new Receipt(BatchId::fromIdempotencyKey('order-981'), 2, 0))
+        ->and($prepared)->toEqual(new Receipt('b', 1, 0))
+        ->and($user->variant('pricing-test', 'fallback'))->toBe('fallback')
+        ->and($user->enabled('new-checkout', true))->toBeTrue()
+        ->and(fn () => $mira->track(' padded'))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => $mira->send([['name' => '$nope']]))->toThrow(InvalidArgumentException::class);
+});
+
+it('passes its flag refresh interval to flags()', function (): void {
+    $flags = (new Mira(key: KEY, transport: transport(), flagsRefreshSeconds: 120))->flags();
+
+    expect((new ReflectionProperty($flags, 'refreshMs'))->getValue($flags))->toBe(120_000);
+});
+
+it('names the default host', function (): void {
+    $transport = transport(accepted());
+    (new Mira(key: KEY, transport: $transport))->send([['name' => 'a']]);
+
+    expect(Mira::DEFAULT_HOST)->toBe('https://events.mirafive.io')
+        ->and($transport->requests[0]['url'])->toBe(Mira::DEFAULT_HOST.'/v1/batch');
+});

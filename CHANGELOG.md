@@ -10,3 +10,4 @@ First release on the v1 ingest protocol.
 - Transports: cURL, PHP streams, or any PSR-18 client.
 - `MiraFive\Flags\MiraFlags`: the server flag document with ETag revalidation and an optional PSR-16 cache, consent and opt-out per FLAGS.md §5.1, segment lookups, server-counted exposures and an escaped bootstrap block for the browser SDK.
 - The flag evaluator passes the shared MIRA FIVE fixtures.
+- Seams for framework integrations: `handOff` and `deliverPrepared()` for queued delivery, `flushOnShutdown`, `enabled: false` for local and test environments, `flagsRefreshSeconds`, and `Mira::DEFAULT_HOST`.

@@ -40,14 +40,52 @@ final readonly class Delivery
      */
     public function deliver(array $events, string $batchId, Mode $mode): Receipt
     {
-        if ($this->key === '') {
-            throw new MiraError('unauthorized', 'No secret key: pass one to Mira or set MIRAFIVE_SECRET_KEY.');
-        }
+        return $this->post(self::encode($events, $batchId, $mode), $batchId);
+    }
 
+    /**
+     * The request body, encoded once so every attempt and any hand-off send the same bytes.
+     *
+     * @param  list<array<string, mixed>>  $events  wire events
+     *
+     * @throws MiraError
+     */
+    public static function encode(array $events, string $batchId, Mode $mode): string
+    {
         $body = self::body($events, $batchId, $mode);
 
         if (strlen($body) > self::MAX_BODY_BYTES) {
             throw new MiraError('payload_too_large', 'The batch encodes to more than 1 MiB; send fewer events at once.', 413);
+        }
+
+        return $body;
+    }
+
+    /**
+     * The batch id and event count of an encoded batch.
+     *
+     * @return array{0: string, 1: int}
+     *
+     * @throws MiraError
+     */
+    public static function inspect(string $body): array
+    {
+        $batch = json_decode($body, true);
+
+        if (! is_array($batch) || ! is_string($batch['batch'] ?? null) || ! is_array($batch['events'] ?? null) || strlen($body) > self::MAX_BODY_BYTES) {
+            throw new MiraError('invalid_event', 'Not an encoded MIRA FIVE batch.');
+        }
+
+        return [$batch['batch'], count($batch['events'])];
+    }
+
+    /**
+     * @throws MiraError
+     */
+    public function post(string $body, string $batchId): Receipt
+    {
+        if ($this->key === '') {
+            throw new MiraError('unauthorized', 'No secret key: pass one to Mira or set MIRAFIVE_SECRET_KEY.');
         }
 
         for ($attempt = 0; ; $attempt++) {

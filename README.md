@@ -69,7 +69,7 @@ Rules that hold in both modes:
 ```php
 new Mira(
     key: null,              // string|false|null. null reads MIRAFIVE_SECRET_KEY; getenv() results are accepted as-is
-    host: null,             // null reads MIRAFIVE_HOST, else https://events.mirafive.io. A scheme is required
+    host: null,             // null reads MIRAFIVE_HOST, else Mira::DEFAULT_HOST (https://events.mirafive.io). A scheme is required
     mode: Mode::Full,
     flushAt: 100,           // send once this many events are buffered (1–1000)
     timeoutMs: 5_000,       // per attempt
@@ -79,6 +79,10 @@ new Mira(
     onError: null,          // callable(MiraError): void, receives every delivery failure
     logger: null,           // Psr\Log\LoggerInterface, used when there is no onError
     cache: null,            // Psr\SimpleCache\CacheInterface, shares the flag document between processes
+    enabled: true,          // false: nothing leaves the process and no key is needed; input is still checked
+    flushOnShutdown: true,  // false: no shutdown function (your framework flushes on terminate)
+    flagsRefreshSeconds: 30,// refresh interval of flags()
+    handOff: null,          // Closure(string $body, string $batchId): void, receives buffered batches instead of sending them
 );
 ```
 
@@ -87,16 +91,23 @@ new Mira(
 | `track(string $name, ?string $userId = null, ?string $anonymousId = null, ?string $sessionId = null, array $properties = [], DateTimeInterface\|int\|null $time = null, ?array $page = null): void` | Buffers one event. `time` is a `DateTimeInterface` or epoch milliseconds; it defaults to now. `page` takes `url`, `title`, `referrer`. |
 | `identify(string $userId, array $traits = [], ?string $anonymousId = null, DateTimeInterface\|int\|null $time = null): void` | Buffers `$identify`: the person's traits, and a link from the browser's anonymous id when given. Full mode only. |
 | `send(array $events, ?string $idempotencyKey = null): Receipt` | Sends 1–1000 events now as one batch. Each event is an array with `name` and optionally `userId`, `anonymousId`, `sessionId`, `properties`, `time`, `page`, `id`. Throws `MiraError`. |
-| `flush(): void` | Sends the buffer. Never throws; failures go to `onError`, the logger, or `error_log()`. |
+| `flush(): void` | Sends the buffer, or hands it to `handOff`. Never throws; failures go to `onError`, the logger, or `error_log()`. |
+| `deliverPrepared(string $body): Receipt` | Sends a batch a `handOff` received, with the usual retries, under this client's key. Throws `MiraError`. |
 | `flags(): Flags\MiraFlags` | The flags of this source, sharing key, host, transport and cache. |
 
-The buffer is also sent when `flushAt` is reached, when the `Mira` object is destroyed, and once in a shutdown function at the end of the request.
+The buffer is also sent when `flushAt` is reached, when the `Mira` object is destroyed, and once in a shutdown function at the end of the request (unless `flushOnShutdown: false`).
 
 **Defaults.** `flushAt` 100 events, `timeoutMs` 5,000 per attempt, `maxRetries` 2, `maxRetryAfterMs` 3,000. They are lower than the Node server SDK's (10 s timeout, 3 retries) because delivery usually runs inside a PHP web request. For flags: `refreshSeconds` 30, a 1,500 ms document fetch and a 500 ms segment lookup.
 
 **Delivery.** Batches go to `POST {host}/v1/batch` as JSON with the secret key as a bearer token, at most 1000 events and 1 MiB each (larger buffers are split). Retries use full-jitter exponential backoff (100 ms base, 1 s cap), honour `Retry-After`, and resend the byte-identical body under the same batch id, so a retry is never counted twice.
 
 **Input checks.** Input the collector would refuse throws an `InvalidArgumentException` immediately, because one bad event would otherwise cost every event in its batch: names of 1–128 characters without surrounding whitespace, `$` names other than the reserved ones (`$pageview`, `$autocapture`, `$identify`, `$search`, `$install_check`, `$exposure`), blank or overlong ids, properties that are a list, nest deeper than 5 levels, carry more than 64 values or encode to more than 32 KB. Page fields that are too long are shortened instead.
+
+### Queues, frameworks and tests
+
+- **Deliver from a queue.** With `handOff`, every buffered flush (explicit, at `flushAt`, on shutdown) passes the encoded batch to your closure instead of sending it. Put the body on a queue; the worker calls `$mira->deliverPrepared($body)` on its own `Mira`, so the key never travels in the message. The body is final: retries resend it byte for byte under its batch id, so a job that runs twice is stored once. `send()` ignores `handOff` and always sends immediately.
+- **Flush on terminate.** Frameworks pass `flushOnShutdown: false` and call `flush()` after the response.
+- **Local and test environments.** `enabled: false` sends nothing and needs no key, but refuses the same input as production. `track()` keeps nothing, `send()` and `deliverPrepared()` return a local receipt with every event accepted, and flags answer their fallbacks.
 
 ### `MiraFive\Receipt`
 
@@ -165,6 +176,7 @@ new MiraFlags(
     lookupTimeoutMs: 500,   // the segment lookup
     cache: null,            // Psr\SimpleCache\CacheInterface
     document: null,         // a snapshot (JSON or array), used while none was fetched and while younger than 7 days
+    enabled: true,          // false: never fetches or looks up, so reads answer their fallbacks
     mira: null,             // sends exposures; defaults to a client on the same key
     transport: null,
     onError: null,
