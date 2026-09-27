@@ -58,7 +58,7 @@ it('buffers events until flush and sends them as one protocol batch', function (
         ->and($body['batch'])->toMatch('/^[0-9a-f-]{36}$/')
         ->and($body['mode'])->toBe('full')
         ->and($body['sentAt'])->toBeInt()
-        ->and($body['context'])->toBe(['sdk' => 'mirafive-php/0.5.0'])
+        ->and($body['context'])->toBe(['sdk' => 'mirafive-php/1.0.0'])
         ->and($body['events'][0])->toBe(['name' => 'signup', 'time' => 1727430100123, 'properties' => ['plan' => 'pro'], 'userId' => 'u_42'])
         ->and($body['events'][1]['name'])->toBe('$identify')
         ->and($body['events'][1]['anonymousId'])->toBe('5f0c1c8e-3e0e-4a57-9d59-3f7f2a6d1e44');

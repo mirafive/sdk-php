@@ -22,7 +22,7 @@ use WeakReference;
  */
 final class Mira
 {
-    public const string VERSION = '0.5.0';
+    public const string VERSION = '1.0.0';
 
     public const string SDK = 'mirafive-php/'.self::VERSION;
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 — 2026-09-27
+## 1.0.0 — 2026-09-27
 
 First release on the v1 ingest protocol.
 
