@@ -434,9 +434,17 @@ it('names the default host', function (): void {
         ->and($transport->requests[0]['url'])->toBe(Mira::DEFAULT_HOST.'/v1/batch');
 });
 
-it('measures the properties limit as the collector does, with escaped unicode and slashes', function (): void {
-    client(transport())->track('a', properties: ['text' => str_repeat('ü', 6_000)]);
+it('measures the properties limit in UTF-8 bytes, as the collector does', function (): void {
+    client(transport())->track('a', properties: ['text' => str_repeat('ü', 16_400)]);
 })->throws(InvalidArgumentException::class, '32768 bytes');
+
+it('does not count unicode and slashes escaped', function (): void {
+    $transport = transport(accepted());
+
+    client($transport)->send([['name' => 'a', 'properties' => ['text' => str_repeat('ü/', 8_000)]]]);
+
+    expect($transport->requests)->toHaveCount(1);
+});
 
 it('accepts properties the collector measures below the limit', function (): void {
     $transport = transport(accepted());

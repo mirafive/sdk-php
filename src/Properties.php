@@ -31,9 +31,9 @@ final class Properties
         $leaves = 0;
         self::walk($properties, 1, $leaves);
 
-        // Measured exactly as the collector measures (plain json_encode), so unicode and slashes count escaped.
+        // UTF-8 bytes, unescaped, as the collector counts them (PROTOCOL §3).
         try {
-            $bytes = strlen(json_encode($properties, JSON_THROW_ON_ERROR));
+            $bytes = strlen(json_encode($properties, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         } catch (JsonException $exception) {
             throw new InvalidArgumentException('properties cannot be encoded as JSON: '.$exception->getMessage(), 0, $exception);
         }
