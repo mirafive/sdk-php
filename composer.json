@@ -1,6 +1,6 @@
 {
     "name": "mirafive/sdk-php",
-    "description": "PHP SDK for MIRA FIVE, privacy-first analytics: server-side events and feature flags.",
+    "description": "MIRA FIVE SDK for PHP",
     "type": "library",
     "license": "MIT",
     "keywords": ["analytics", "privacy", "gdpr", "feature-flags", "experiments", "mirafive"],
