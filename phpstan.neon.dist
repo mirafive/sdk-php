@@ -1,0 +1,9 @@
+parameters:
+    level: max
+    phpVersion:
+        min: 80300
+        max: 80599
+    paths:
+        - src
+    # Public inputs are checked at runtime even where the PHPDoc already promises their shape.
+    treatPhpDocTypesAsCertain: false

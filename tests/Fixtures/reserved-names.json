@@ -1,0 +1,11 @@
+{
+    "v": 1,
+    "names": [
+        "$pageview",
+        "$autocapture",
+        "$identify",
+        "$search",
+        "$install_check",
+        "$exposure"
+    ]
+}

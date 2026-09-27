@@ -1,0 +1,62 @@
+{
+    "name": "mirafive/sdk-php",
+    "description": "PHP SDK for MIRA FIVE, privacy-first analytics: server-side events and feature flags.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["analytics", "privacy", "gdpr", "feature-flags", "experiments", "mirafive"],
+    "homepage": "https://mirafive.io",
+    "authors": [
+        {
+            "name": "Cloo GmbH",
+            "homepage": "https://mirafive.io"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.24",
+        "pestphp/pest": "^4.0",
+        "phpstan/phpstan": "^2.1",
+        "psr/http-client": "^1.0",
+        "psr/http-factory": "^1.1",
+        "psr/log": "^3.0",
+        "psr/simple-cache": "^3.0"
+    },
+    "suggest": {
+        "ext-curl": "The default HTTP transport; without it, PHP streams are used.",
+        "psr/http-client": "Send through your own PSR-18 client (with Http\\Psr18Transport).",
+        "psr/http-factory": "PSR-17 factories for Http\\Psr18Transport.",
+        "psr/log": "Report delivery failures to a PSR-3 logger.",
+        "psr/simple-cache": "Share the flag document between PHP processes with a PSR-16 cache."
+    },
+    "autoload": {
+        "psr-4": {
+            "MiraFive\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "MiraFive\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "lint": "pint",
+        "analyse": "phpstan analyse --memory-limit=1G",
+        "test": "pest",
+        "check": [
+            "pint --test",
+            "phpstan analyse --memory-limit=1G --no-progress",
+            "pest"
+        ]
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

@@ -1,0 +1,1031 @@
+{
+    "v": 1,
+    "fnv1a32": [
+        {
+            "input": "",
+            "hash": 2166136261
+        },
+        {
+            "input": "a",
+            "hash": 3826002220
+        },
+        {
+            "input": "abc",
+            "hash": 440920331
+        },
+        {
+            "input": "müller",
+            "hash": 1392138076
+        },
+        {
+            "input": "user-42",
+            "hash": 39875499
+        },
+        {
+            "input": "1",
+            "hash": 873244444
+        },
+        {
+            "input": "100000",
+            "hash": 1692573508
+        },
+        {
+            "input": "user_1",
+            "hash": 1758944914
+        },
+        {
+            "input": "user_100000",
+            "hash": 571487590
+        },
+        {
+            "input": "01a0c450-6c24-7818-ad6d-94379f48dade",
+            "hash": 1754457117
+        },
+        {
+            "input": "Grüße aus Köln",
+            "hash": 3051312825
+        },
+        {
+            "input": "你好世界",
+            "hash": 157454421
+        },
+        {
+            "input": "😀",
+            "hash": 866293256
+        },
+        {
+            "input": "🎉 party",
+            "hash": 1157813069
+        },
+        {
+            "input": "a\u0000b",
+            "hash": 284404690
+        },
+        {
+            "input": "the quick brown fox jumps over the lazy dog",
+            "hash": 4016652272
+        }
+    ],
+    "bucket": [
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "0199a3f2-7c1e-7a4b-9f00-1b2c3d4e5f60",
+            "bucket": 7227
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "0199a3f2-7c1e-7a4b-9f00-1b2c3d4e5f60",
+            "bucket": 2503
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "user-42",
+            "bucket": 6137
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "user-42",
+            "bucket": 7627
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "müller",
+            "bucket": 8588
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "müller",
+            "bucket": 5286
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "1",
+            "bucket": 3921
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "1",
+            "bucket": 9150
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "2",
+            "bucket": 3691
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "2",
+            "bucket": 8766
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "10",
+            "bucket": 3520
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "10",
+            "bucket": 705
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "99999",
+            "bucket": 8507
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "99999",
+            "bucket": 8512
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "100000",
+            "bucket": 5985
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "100000",
+            "bucket": 2467
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "user_1",
+            "bucket": 2771
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "user_1",
+            "bucket": 1718
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "user_2",
+            "bucket": 1328
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "user_2",
+            "bucket": 4928
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "user_100000",
+            "bucket": 7435
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "user_100000",
+            "bucket": 5581
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "01a0c450-6c24-7818-ad6d-94379f48dade",
+            "bucket": 1077
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "01a0c450-6c24-7818-ad6d-94379f48dade",
+            "bucket": 8129
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "01a0c450-6c50-7a3a-a2c1-798be1cf4871",
+            "bucket": 9448
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "01a0c450-6c50-7a3a-a2c1-798be1cf4871",
+            "bucket": 1207
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "01a0c450-6c70-777e-81c6-381a32d47ba0",
+            "bucket": 9392
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "01a0c450-6c70-777e-81c6-381a32d47ba0",
+            "bucket": 8268
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "01a0c450-6c89-7f49-9c75-2e5349f70846",
+            "bucket": 8097
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "01a0c450-6c89-7f49-9c75-2e5349f70846",
+            "bucket": 8367
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "01a0c450-6cb6-7e9d-aaff-8ea077bbc113",
+            "bucket": 9482
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "01a0c450-6cb6-7e9d-aaff-8ea077bbc113",
+            "bucket": 1093
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "Grüße",
+            "bucket": 5517
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "Grüße",
+            "bucket": 5646
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "你好世界",
+            "bucket": 1906
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "你好世界",
+            "bucket": 4413
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "😀🎉",
+            "bucket": 7578
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "😀🎉",
+            "bucket": 82
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".r",
+            "unit": "the quick brown fox jumps over the lazy dog",
+            "bucket": 2090
+        },
+        {
+            "seed": "3f9a1c0b7e2d",
+            "salt": ".v",
+            "unit": "the quick brown fox jumps over the lazy dog",
+            "bucket": 5523
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "0199a3f2-7c1e-7a4b-9f00-1b2c3d4e5f60",
+            "bucket": 5752
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "0199a3f2-7c1e-7a4b-9f00-1b2c3d4e5f60",
+            "bucket": 4712
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "user-42",
+            "bucket": 850
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "user-42",
+            "bucket": 1639
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "müller",
+            "bucket": 456
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "müller",
+            "bucket": 1898
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "1",
+            "bucket": 4636
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "1",
+            "bucket": 403
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "2",
+            "bucket": 8095
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "2",
+            "bucket": 234
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "10",
+            "bucket": 6544
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "10",
+            "bucket": 203
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "99999",
+            "bucket": 1308
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "99999",
+            "bucket": 7248
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "100000",
+            "bucket": 4292
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "100000",
+            "bucket": 114
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "user_1",
+            "bucket": 5228
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "user_1",
+            "bucket": 942
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "user_2",
+            "bucket": 3472
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "user_2",
+            "bucket": 1543
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "user_100000",
+            "bucket": 628
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "user_100000",
+            "bucket": 1424
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "01a0c450-6c24-7818-ad6d-94379f48dade",
+            "bucket": 9140
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "01a0c450-6c24-7818-ad6d-94379f48dade",
+            "bucket": 3819
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "01a0c450-6c50-7a3a-a2c1-798be1cf4871",
+            "bucket": 6125
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "01a0c450-6c50-7a3a-a2c1-798be1cf4871",
+            "bucket": 3439
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "01a0c450-6c70-777e-81c6-381a32d47ba0",
+            "bucket": 314
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "01a0c450-6c70-777e-81c6-381a32d47ba0",
+            "bucket": 541
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "01a0c450-6c89-7f49-9c75-2e5349f70846",
+            "bucket": 6190
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "01a0c450-6c89-7f49-9c75-2e5349f70846",
+            "bucket": 1212
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "01a0c450-6cb6-7e9d-aaff-8ea077bbc113",
+            "bucket": 4472
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "01a0c450-6cb6-7e9d-aaff-8ea077bbc113",
+            "bucket": 8229
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "Grüße",
+            "bucket": 3473
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "Grüße",
+            "bucket": 1538
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "你好世界",
+            "bucket": 1761
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "你好世界",
+            "bucket": 6397
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "😀🎉",
+            "bucket": 9890
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "😀🎉",
+            "bucket": 1404
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".r",
+            "unit": "the quick brown fox jumps over the lazy dog",
+            "bucket": 4248
+        },
+        {
+            "seed": "k3v9x0q2m7ta",
+            "salt": ".v",
+            "unit": "the quick brown fox jumps over the lazy dog",
+            "bucket": 1786
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "0199a3f2-7c1e-7a4b-9f00-1b2c3d4e5f60",
+            "bucket": 5924
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "0199a3f2-7c1e-7a4b-9f00-1b2c3d4e5f60",
+            "bucket": 3094
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "user-42",
+            "bucket": 334
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "user-42",
+            "bucket": 4846
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "müller",
+            "bucket": 4021
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "müller",
+            "bucket": 4643
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "1",
+            "bucket": 4373
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "1",
+            "bucket": 6920
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "2",
+            "bucket": 2153
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "2",
+            "bucket": 9412
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "10",
+            "bucket": 9762
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "10",
+            "bucket": 3051
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "99999",
+            "bucket": 4627
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "99999",
+            "bucket": 3500
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "100000",
+            "bucket": 9436
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "100000",
+            "bucket": 5898
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "user_1",
+            "bucket": 438
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "user_1",
+            "bucket": 4695
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "user_2",
+            "bucket": 9240
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "user_2",
+            "bucket": 8125
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "user_100000",
+            "bucket": 6181
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "user_100000",
+            "bucket": 6628
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "01a0c450-6c24-7818-ad6d-94379f48dade",
+            "bucket": 9184
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "01a0c450-6c24-7818-ad6d-94379f48dade",
+            "bucket": 674
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "01a0c450-6c50-7a3a-a2c1-798be1cf4871",
+            "bucket": 5342
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "01a0c450-6c50-7a3a-a2c1-798be1cf4871",
+            "bucket": 6273
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "01a0c450-6c70-777e-81c6-381a32d47ba0",
+            "bucket": 6362
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "01a0c450-6c70-777e-81c6-381a32d47ba0",
+            "bucket": 4928
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "01a0c450-6c89-7f49-9c75-2e5349f70846",
+            "bucket": 8517
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "01a0c450-6c89-7f49-9c75-2e5349f70846",
+            "bucket": 9468
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "01a0c450-6cb6-7e9d-aaff-8ea077bbc113",
+            "bucket": 5924
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "01a0c450-6cb6-7e9d-aaff-8ea077bbc113",
+            "bucket": 1220
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "Grüße",
+            "bucket": 7384
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "Grüße",
+            "bucket": 9102
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "你好世界",
+            "bucket": 970
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "你好世界",
+            "bucket": 5790
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "😀🎉",
+            "bucket": 2701
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "😀🎉",
+            "bucket": 7012
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".r",
+            "unit": "the quick brown fox jumps over the lazy dog",
+            "bucket": 9962
+        },
+        {
+            "seed": "000000000000",
+            "salt": ".v",
+            "unit": "the quick brown fox jumps over the lazy dog",
+            "bucket": 6340
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "0199a3f2-7c1e-7a4b-9f00-1b2c3d4e5f60",
+            "bucket": 8225
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "0199a3f2-7c1e-7a4b-9f00-1b2c3d4e5f60",
+            "bucket": 7265
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "user-42",
+            "bucket": 4687
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "user-42",
+            "bucket": 7521
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "müller",
+            "bucket": 2779
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "müller",
+            "bucket": 8404
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "1",
+            "bucket": 4609
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "1",
+            "bucket": 1206
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "2",
+            "bucket": 1923
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "2",
+            "bucket": 4042
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "10",
+            "bucket": 1801
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "10",
+            "bucket": 6335
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "99999",
+            "bucket": 455
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "99999",
+            "bucket": 6822
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "100000",
+            "bucket": 1881
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "100000",
+            "bucket": 3438
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "user_1",
+            "bucket": 3821
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "user_1",
+            "bucket": 8871
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "user_2",
+            "bucket": 9384
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "user_2",
+            "bucket": 5080
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "user_100000",
+            "bucket": 8130
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "user_100000",
+            "bucket": 9533
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "01a0c450-6c24-7818-ad6d-94379f48dade",
+            "bucket": 7284
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "01a0c450-6c24-7818-ad6d-94379f48dade",
+            "bucket": 3613
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "01a0c450-6c50-7a3a-a2c1-798be1cf4871",
+            "bucket": 9507
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "01a0c450-6c50-7a3a-a2c1-798be1cf4871",
+            "bucket": 9518
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "01a0c450-6c70-777e-81c6-381a32d47ba0",
+            "bucket": 7402
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "01a0c450-6c70-777e-81c6-381a32d47ba0",
+            "bucket": 3692
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "01a0c450-6c89-7f49-9c75-2e5349f70846",
+            "bucket": 6130
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "01a0c450-6c89-7f49-9c75-2e5349f70846",
+            "bucket": 7991
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "01a0c450-6cb6-7e9d-aaff-8ea077bbc113",
+            "bucket": 8869
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "01a0c450-6cb6-7e9d-aaff-8ea077bbc113",
+            "bucket": 8688
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "Grüße",
+            "bucket": 9712
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "Grüße",
+            "bucket": 8211
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "你好世界",
+            "bucket": 3046
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "你好世界",
+            "bucket": 6852
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "😀🎉",
+            "bucket": 4002
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "😀🎉",
+            "bucket": 6952
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".r",
+            "unit": "the quick brown fox jumps over the lazy dog",
+            "bucket": 7693
+        },
+        {
+            "seed": "zzzzzzzzzzzz",
+            "salt": ".v",
+            "unit": "the quick brown fox jumps over the lazy dog",
+            "bucket": 9999
+        }
+    ]
+}
