@@ -27,3 +27,7 @@ composer test       # pest
   fixtures, not here.
 - Tests never touch the network: use `tests/Support/FakeTransport`.
 - Comments only for non-obvious constraints, one or two lines.
+
+## Releasing
+
+To release, bump `Mira::VERSION` in `src/Mira.php`, add a `## X.Y.Z — YYYY-MM-DD` section to `CHANGELOG.md`, commit, then `git tag vX.Y.Z && git push origin vX.Y.Z`. `.github/workflows/release.yml` checks the version and the changelog, runs `composer check` and creates the GitHub release; Packagist picks the tag up by itself.
