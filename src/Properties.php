@@ -6,6 +6,7 @@ namespace MiraFive;
 
 use InvalidArgumentException;
 use JsonException;
+use stdClass;
 
 /** @internal The collector's property limits (PROTOCOL §3), checked before the event joins a batch. */
 final class Properties
@@ -30,8 +31,9 @@ final class Properties
         $leaves = 0;
         self::walk($properties, 1, $leaves);
 
+        // Measured exactly as the collector measures (plain json_encode), so unicode and slashes count escaped.
         try {
-            $bytes = strlen(json_encode($properties, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+            $bytes = strlen(json_encode($properties, JSON_THROW_ON_ERROR));
         } catch (JsonException $exception) {
             throw new InvalidArgumentException('properties cannot be encoded as JSON: '.$exception->getMessage(), 0, $exception);
         }
@@ -45,13 +47,15 @@ final class Properties
     }
 
     /**
-     * Lists and empty arrays are one leaf each, as the collector counts them.
+     * Lists and empty arrays or objects are one leaf each, as the collector counts them. A stdClass is an object.
      *
      * @param  array<array-key, mixed>  $properties
      */
     private static function walk(array $properties, int $depth, int &$leaves): void
     {
         foreach ($properties as $key => $value) {
+            $value = $value instanceof stdClass ? get_object_vars($value) : $value;
+
             if (Text::length((string) $key) > self::MAX_KEY_LENGTH) {
                 throw new InvalidArgumentException('Property keys are at most '.self::MAX_KEY_LENGTH.' characters.');
             }

@@ -9,6 +9,7 @@ use JsonException;
 use MiraFive\Http\Response;
 use MiraFive\Http\Transport;
 use MiraFive\Http\TransportException;
+use stdClass;
 use Throwable;
 
 /** @internal One batch to POST /v1/batch, retried with the byte-identical body (PROTOCOL §5). */
@@ -28,6 +29,7 @@ final readonly class Delivery
         private string $host,
         private string $key,
         private int $timeoutMs,
+        private int $connectTimeoutMs,
         private int $maxRetries,
         private int $maxRetryAfterMs,
         private Closure $sleep,
@@ -80,16 +82,25 @@ final readonly class Delivery
     }
 
     /**
+     * @param  Budget|null  $budget  caps attempts and waits together; each attempt's timeout shrinks to fit it
+     *
      * @throws MiraError
      */
-    public function post(string $body, string $batchId): Receipt
+    public function post(string $body, string $batchId, ?Budget $budget = null): Receipt
     {
         if ($this->key === '') {
             throw new MiraError('unauthorized', 'No secret key: pass one to Mira or set MIRAFIVE_SECRET_KEY.');
         }
 
         for ($attempt = 0; ; $attempt++) {
-            $outcome = $this->attempt($body, $batchId);
+            if ($budget !== null && $budget->remainingMs <= 0) {
+                throw new MiraError('timeout', 'The flush deadline passed before the batch was delivered.', retryable: true);
+            }
+
+            $timeoutMs = min($this->timeoutMs, $budget->remainingMs ?? PHP_INT_MAX);
+            $started = hrtime(true);
+            $outcome = $this->attempt($body, $batchId, $timeoutMs);
+            $budget?->spend((int) ceil((hrtime(true) - $started) / 1e6));
 
             if ($outcome instanceof Receipt) {
                 return $outcome;
@@ -97,12 +108,58 @@ final readonly class Delivery
 
             $wait = $this->backoff($attempt, $outcome);
 
-            if ($wait === null) {
+            if ($wait === null || ($budget !== null && $wait >= $budget->remainingMs)) {
                 throw $outcome;
             }
 
+            $budget?->spend($wait);
             ($this->sleep)($wait);
         }
+    }
+
+    /**
+     * After `validation_failed`, the batch without the events the errors name, under an id derived from the old one
+     * and the dropped indexes, so a worker retrying the same job resends the same batch. Null when an error names no
+     * event, or none would be left.
+     *
+     * @return array{0: string, 1: string, 2: MiraError}|null the remaining body, its batch id, and the report of the dropped events
+     */
+    public static function withoutRefused(string $body, MiraError $error): ?array
+    {
+        $batch = json_decode($body);
+
+        if ($error->errorCode !== 'validation_failed' || $error->errors === [] || ! $batch instanceof stdClass || ! is_array($batch->events ?? null) || ! is_string($batch->batch ?? null)) {
+            return null;
+        }
+
+        $refused = [];
+
+        foreach ($error->errors as $problem) {
+            if (preg_match('/^events\.(\d+)(\.|\z)/', $problem['path'], $match) !== 1 || (int) $match[1] >= count($batch->events)) {
+                return null;
+            }
+
+            $refused[(int) $match[1]] = true;
+        }
+
+        ksort($refused);
+        $indexes = array_keys($refused);
+        $events = array_values(array_diff_key($batch->events, $refused));
+
+        if ($events === []) {
+            return null;
+        }
+
+        $batch->batch = BatchId::fromIdempotencyKey($batch->batch.'#without:'.implode(',', $indexes));
+        $batch->events = $events;
+        $report = new MiraError('validation_failed', sprintf(
+            'Dropped %d of %d events the collector refused (%s); the rest was resent.',
+            count($indexes),
+            count($events) + count($indexes),
+            implode('; ', array_map(fn (array $problem): string => $problem['path'].': '.$problem['message'], $error->errors)),
+        ), 400, errors: $error->errors);
+
+        return [json_encode($batch, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION), $batch->batch, $report];
     }
 
     /**
@@ -115,7 +172,7 @@ final readonly class Delivery
                 'v' => 1,
                 'batch' => $batchId,
                 'mode' => $mode->value,
-                'sentAt' => (int) floor(microtime(true) * 1000),
+                'sentAt' => Clock::ms(),
                 'context' => ['sdk' => Mira::SDK],
                 'events' => $events,
             ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
@@ -124,7 +181,7 @@ final readonly class Delivery
         }
     }
 
-    private function attempt(string $body, string $batchId): Receipt|MiraError
+    private function attempt(string $body, string $batchId, int $timeoutMs): Receipt|MiraError
     {
         try {
             $response = $this->transport->request('POST', $this->host.'/v1/batch', [
@@ -132,7 +189,7 @@ final readonly class Delivery
                 'Content-Type' => 'application/json',
                 'Accept' => 'application/json',
                 'User-Agent' => Mira::SDK.' (PHP '.PHP_VERSION.')',
-            ], $body, $this->timeoutMs);
+            ], $body, $timeoutMs, min($this->connectTimeoutMs, $timeoutMs));
         } catch (TransportException $exception) {
             return new MiraError($exception->timedOut ? 'timeout' : 'network_error', $exception->getMessage(), retryable: true, previous: $exception);
         } catch (Throwable $exception) {

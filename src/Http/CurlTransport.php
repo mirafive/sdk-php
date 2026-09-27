@@ -11,7 +11,7 @@ final class CurlTransport implements Transport
     /** Kept between requests so the flag fetch, a lookup and the batch share one connection. */
     private ?CurlHandle $handle = null;
 
-    public function request(string $method, string $url, array $headers, ?string $body, int $timeoutMs): Response
+    public function request(string $method, string $url, array $headers, ?string $body, int $timeoutMs, int $connectTimeoutMs): Response
     {
         if ($url === '' || $method === '') {
             throw new TransportException('A request needs a method and a URL.');
@@ -35,7 +35,7 @@ final class CurlTransport implements Transport
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_TIMEOUT_MS => $timeoutMs,
-            CURLOPT_CONNECTTIMEOUT_MS => $timeoutMs,
+            CURLOPT_CONNECTTIMEOUT_MS => $connectTimeoutMs,
             CURLOPT_NOSIGNAL => true,
             CURLOPT_HEADERFUNCTION => static function (CurlHandle $handle, string $line) use (&$received): int {
                 $parts = explode(':', $line, 2);

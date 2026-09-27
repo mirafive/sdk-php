@@ -8,6 +8,7 @@ use MiraFive\Mira;
 use MiraFive\MiraError;
 use MiraFive\Mode;
 use MiraFive\Receipt;
+use MiraFive\Tests\Support\ArrayCache;
 use MiraFive\Tests\Support\FakeTransport;
 
 const KEY = 'mf_ab12cd34_secretTail';
@@ -51,7 +52,8 @@ it('buffers events until flush and sends them as one protocol batch', function (
         ->and($request['url'])->toBe('https://events.example.test/v1/batch')
         ->and($request['headers']['Authorization'])->toBe('Bearer '.KEY)
         ->and($request['headers']['Content-Type'])->toBe('application/json')
-        ->and($request['timeoutMs'])->toBe(5000)
+        ->and($request['timeoutMs'])->toBe(3000)
+        ->and($request['connectTimeoutMs'])->toBe(1000)
         ->and($body['v'])->toBe(1)
         ->and($body['batch'])->toMatch('/^[0-9a-f-]{36}$/')
         ->and($body['mode'])->toBe('full')
@@ -431,3 +433,163 @@ it('names the default host', function (): void {
     expect(Mira::DEFAULT_HOST)->toBe('https://events.mirafive.io')
         ->and($transport->requests[0]['url'])->toBe(Mira::DEFAULT_HOST.'/v1/batch');
 });
+
+it('measures the properties limit as the collector does, with escaped unicode and slashes', function (): void {
+    client(transport())->track('a', properties: ['text' => str_repeat('ü', 6_000)]);
+})->throws(InvalidArgumentException::class, '32768 bytes');
+
+it('accepts properties the collector measures below the limit', function (): void {
+    $transport = transport(accepted());
+
+    client($transport)->send([['name' => 'a', 'properties' => ['text' => str_repeat('x', 32_700)]]]);
+
+    expect($transport->requests)->toHaveCount(1);
+});
+
+it('drops the events a buffered batch was refused for and resends the rest under a derived id', function (): void {
+    $refusal = answer(400, ['code' => 'validation_failed', 'detail' => 'invalid', 'errors' => [
+        ['path' => 'events.1.properties', 'message' => 'too deep'],
+        ['path' => 'events.3', 'message' => 'invalid'],
+    ]]);
+    $transport = transport($refusal, accepted(2));
+    $errors = [];
+    $slept = [];
+    $mira = client($transport, $slept, $errors);
+
+    foreach (['a', 'b', 'c', 'd'] as $name) {
+        $mira->track($name, properties: ['nested' => new stdClass]);
+    }
+
+    $mira->flush();
+    $first = $transport->body(0);
+    $second = $transport->body(1);
+
+    expect(array_column($second['events'], 'name'))->toBe(['a', 'c'])
+        ->and($second['batch'])->toBe(BatchId::fromIdempotencyKey($first['batch'].'#without:1,3'))
+        ->and($transport->requests[1]['body'])->toContain('"nested":{}')
+        ->and($errors)->toHaveCount(1)
+        ->and($errors[0]->errorCode)->toBe('validation_failed')
+        ->and($errors[0]->getMessage())->toContain('Dropped 2 of 4 events');
+});
+
+it('recovers a prepared batch the same way, deterministically', function (): void {
+    $body = '{"v":1,"batch":"274e05f0-4dd7-8db9-a563-87ea5c891487","mode":"full","events":[{"name":"a"},{"name":"b"}]}';
+    $refusal = fn () => answer(400, ['code' => 'validation_failed', 'detail' => 'x', 'errors' => [['path' => 'events.0.name', 'message' => 'bad']]]);
+    $first = transport($refusal(), answer(202, ['batch' => 'x', 'accepted' => 1, 'dropped' => 0]));
+    $second = transport($refusal(), answer(202, ['batch' => 'x', 'accepted' => 1, 'dropped' => 0]));
+    $errors = [];
+    $slept = [];
+
+    expect(client($first, $slept, $errors)->deliverPrepared($body)->accepted)->toBe(1);
+    client($second, $slept, $errors)->deliverPrepared($body);
+
+    expect($first->requests[1]['body'])->toBe($second->requests[1]['body'])
+        ->and($first->body(1)['events'])->toBe([['name' => 'b']]);
+});
+
+it('drops the whole batch when the errors name no event', function (): void {
+    $transport = transport(answer(400, ['code' => 'validation_failed', 'detail' => 'x', 'errors' => [['path' => 'mode', 'message' => 'bad']]]));
+    $errors = [];
+    $slept = [];
+    $mira = client($transport, $slept, $errors);
+
+    $mira->track('a');
+    $mira->flush();
+
+    expect($transport->requests)->toHaveCount(1)
+        ->and($errors[0]->errorCode)->toBe('validation_failed')
+        ->and($errors[0]->errors)->toBe([['path' => 'mode', 'message' => 'bad']]);
+});
+
+it('keeps a flush within its deadline, counting the waits', function (): void {
+    $transport = transport(answer(503, [], ['Retry-After' => '2']), answer(503), accepted());
+    $errors = [];
+    $slept = [];
+    $mira = new Mira(key: KEY, transport: $transport, flushDeadlineMs: 2_500, maxRetries: 5, onError: function (MiraError $error) use (&$errors): void {
+        $errors[] = $error;
+    }, sleep: function (int $ms) use (&$slept): void {
+        $slept[] = $ms;
+    });
+
+    $mira->track('a');
+    $mira->flush();
+
+    expect($slept[0])->toBe(2000)
+        ->and($transport->requests[1]['timeoutMs'])->toBeLessThanOrEqual(500)
+        ->and($transport->requests[1]['connectTimeoutMs'])->toBeLessThanOrEqual(500)
+        ->and(count($transport->requests))->toBeLessThanOrEqual(3);
+});
+
+it('gives up a flush when the next wait would pass the deadline', function (): void {
+    $transport = transport(answer(503, [], ['Retry-After' => '2']));
+    $errors = [];
+    $slept = [];
+    $mira = new Mira(key: KEY, transport: $transport, flushDeadlineMs: 1_000, onError: function (MiraError $error) use (&$errors): void {
+        $errors[] = $error;
+    }, sleep: function (int $ms) use (&$slept): void {
+        $slept[] = $ms;
+    });
+
+    $mira->track('a');
+    $mira->flush();
+
+    expect($slept)->toBe([])
+        ->and($transport->requests)->toHaveCount(1)
+        ->and($errors[0]->status)->toBe(503);
+});
+
+it('skips the network for 30 s after a failed flush, shared through the cache, and says so once', function (): void {
+    $cache = new ArrayCache;
+    $errors = [];
+    $report = function (MiraError $error) use (&$errors): void {
+        $errors[] = $error;
+    };
+    $failing = transport(new TransportException('down'), new TransportException('down'), new TransportException('down'));
+    $first = new Mira(key: KEY, transport: $failing, cache: $cache, onError: $report, sleep: fn (int $ms) => null);
+
+    $first->track('a');
+    $first->flush();
+    $first->track('b');
+    $first->flush();
+    $first->track('c');
+    $first->flush();
+
+    $idle = transport();
+    $second = new Mira(key: KEY, transport: $idle, cache: $cache, onError: $report);
+    $second->track('d');
+    $second->flush();
+
+    expect($failing->requests)->toHaveCount(3)
+        ->and($idle->requests)->toBeEmpty()
+        ->and(array_map(fn (MiraError $error): string => $error->getMessage(), $errors))->toBe([
+            'down',
+            'Delivery failed recently; events are dropped for up to 30 s without trying the network.',
+            'Delivery failed recently; events are dropped for up to 30 s without trying the network.',
+        ]);
+
+    foreach (array_keys($cache->items) as $key) {
+        $cache->items[$key] = 0;
+    }
+
+    $recovered = new Mira(key: KEY, transport: $working = transport(accepted()), cache: $cache);
+    $recovered->track('e');
+    $recovered->flush();
+
+    expect($working->requests)->toHaveCount(1);
+});
+
+it('does not open the breaker for a refusal', function (): void {
+    $transport = transport(answer(401, ['code' => 'unauthorized', 'detail' => 'x']), answer(401, ['code' => 'unauthorized', 'detail' => 'x']));
+    $mira = client($transport);
+
+    $mira->track('a');
+    $mira->flush();
+    $mira->track('b');
+    $mira->flush();
+
+    expect($transport->requests)->toHaveCount(2);
+});
+
+it('refuses an empty idempotency key', function (): void {
+    client(transport())->send([['name' => 'a']], idempotencyKey: '');
+})->throws(InvalidArgumentException::class, 'non-empty');

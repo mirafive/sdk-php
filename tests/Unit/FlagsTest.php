@@ -304,3 +304,60 @@ it('gives an opted-out person no unit, no segment lookup and no exposure', funct
 it('refuses unknown consent scopes', function (): void {
     flags(transport(documentAnswer()))->for(userId: 'u_42', consent: ['experiment' => false]);
 })->throws(InvalidArgumentException::class, 'experiment');
+
+it('shares exposure marks, memberships and the document between processes through the cache', function (): void {
+    $cache = new ArrayCache;
+    $first = transport(documentAnswer(), membership('seg_a'), accepted());
+    $second = transport();
+    $process = fn (FakeTransport $transport): Mira => new Mira(key: FLAGS_KEY, host: 'https://events.example.test', transport: $transport, cache: $cache);
+
+    $one = $process($first);
+    $one->flags()->for(userId: 'u_42')->variant('pricing-test');
+    $one->flush();
+
+    $two = $process($second);
+    $user = $two->flags()->for(userId: 'u_42');
+    $user->variant('pricing-test');
+    $two->flush();
+
+    expect($first->requests)->toHaveCount(3)
+        ->and($first->body(2)['events'][0]['name'])->toBe('$exposure')
+        ->and($user->enabled('beta'))->toBeTrue()
+        ->and($second->requests)->toBeEmpty();
+});
+
+it('shares the lookup back-off between processes', function (): void {
+    $cache = new ArrayCache;
+    $errors = [];
+    flags(transport(documentAnswer(), new TransportException('down')), $errors, $cache)->for(userId: 'u_42');
+
+    $idle = transport();
+    $user = flags($idle, $errors, $cache)->for(userId: 'u_7');
+
+    expect($user->evaluate('beta')->errorCode)->toBe(ErrorCode::MembershipUnavailable)
+        ->and($idle->requests)->toBeEmpty()
+        ->and($errors)->toHaveCount(1);
+});
+
+it('returns a snapshot that a new MiraFlags starts from, empty objects included', function (): void {
+    $source = flags(transport(documentAnswer()));
+    $source->ready();
+    $snapshot = $source->snapshot();
+    $errors = [];
+    $restored = flags(transport(new TransportException('down')), $errors, document: $snapshot);
+
+    expect($snapshot)->toBeString()
+        ->and(json_decode((string) $snapshot, true)['v'])->toBe(1)
+        ->and($restored->snapshot())->toBe($snapshot)
+        ->and($restored->for(userId: 'u_42')->variant('new-checkout'))->toBe('on')
+        ->and($restored->for(userId: 'u_42')->bootstrap())->toContain('"labels":{}');
+});
+
+it('reports a snapshot it cannot read instead of ignoring it silently', function (string $document): void {
+    $errors = [];
+    $flags = flags(transport(new TransportException('down')), $errors, document: $document);
+
+    expect($errors[0]->errorCode)->toBe('unexpected')
+        ->and($errors[0]->getMessage())->toContain('snapshot')
+        ->and($flags->snapshot())->toBeNull();
+})->with(['not json' => ['{'], 'another version' => ['{"v":2,"flags":{}}'], 'no flags' => ['{"v":1}']]);

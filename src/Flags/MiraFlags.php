@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace MiraFive\Flags;
 
 use InvalidArgumentException;
+use MiraFive\Breaker;
+use MiraFive\Clock;
 use MiraFive\Delivery;
 use MiraFive\Env;
 use MiraFive\Http\CurlTransport;
@@ -16,6 +18,7 @@ use MiraFive\Mira;
 use MiraFive\MiraError;
 use MiraFive\Mode;
 use MiraFive\Reporter;
+use MiraFive\Store;
 use Psr\Log\LoggerInterface;
 use Psr\SimpleCache\CacheInterface;
 use Throwable;
@@ -31,11 +34,9 @@ final class MiraFlags
 
     private const int SNAPSHOT_MAX_AGE_MS = 7 * 24 * 3_600_000;
 
-    private const int LOOKUP_TTL_MS = 60_000;
+    private const int MEMBERSHIP_TTL_SECONDS = 60;
 
-    private const int MAX_REMEMBERED = 10_000;
-
-    private const int EXPOSURE_TTL_MS = 3_600_000;
+    private const int EXPOSURE_TTL_SECONDS = 3_600;
 
     private readonly string $key;
 
@@ -44,6 +45,10 @@ final class MiraFlags
     private readonly Transport $transport;
 
     private readonly Reporter $reporter;
+
+    private readonly Store $store;
+
+    private readonly Breaker $lookups;
 
     private readonly int $refreshMs;
 
@@ -62,18 +67,11 @@ final class MiraFlags
     /** A refused key stays refused until the process restarts. */
     private bool $refused = false;
 
-    /** @var array<string, array{0: int, 1: Membership}> */
-    private array $memberships = [];
-
-    private int $lookupsFrom = 0;
-
-    /** @var array<string, int> when each unit, experiment and variant was last counted */
-    private array $exposed = [];
-
     /**
      * @param  string|false|null  $key  a server source's secret key; null reads MIRAFIVE_SECRET_KEY
      * @param  int  $refreshSeconds  at least 10
-     * @param  string|array<array-key, mixed>|null  $document  a snapshot (JSON or decoded) used while none was fetched, if younger than 7 days
+     * @param  CacheInterface|null  $cache  shares the document, segment memberships, the lookup back-off and exposure marks between processes
+     * @param  string|array<array-key, mixed>|null  $document  a snapshot used while none was fetched, if younger than 7 days; snapshot() returns one
      * @param  bool  $enabled  false: never fetches or looks anything up, so reads answer their fallbacks (or the snapshot)
      * @param  Mira|null  $mira  sends exposures of experiments counted on your server; defaults to a client on the same key
      * @param  (callable(MiraError): void)|null  $onError
@@ -84,7 +82,8 @@ final class MiraFlags
         int $refreshSeconds = 30,
         private readonly int $timeoutMs = 1_500,
         private readonly int $lookupTimeoutMs = 500,
-        private readonly ?CacheInterface $cache = null,
+        private readonly int $connectTimeoutMs = 1_000,
+        ?CacheInterface $cache = null,
         string|array|null $document = null,
         private readonly bool $enabled = true,
         private ?Mira $mira = null,
@@ -97,11 +96,9 @@ final class MiraFlags
         $this->refreshMs = max(10, $refreshSeconds) * 1000;
         $this->transport = $transport ?? (extension_loaded('curl') ? new CurlTransport : new StreamTransport);
         $this->reporter = new Reporter($onError, $logger);
-        $this->snapshot = match (true) {
-            is_string($document) => Document::parse($document),
-            is_array($document) => Document::parse(json_encode($document, JSON_THROW_ON_ERROR)),
-            default => null,
-        };
+        $this->store = new Store($cache, $this->host, $this->key);
+        $this->lookups = new Breaker($this->store, 'lookup.breaker');
+        $this->snapshot = $document === null ? null : $this->readSnapshot($document);
     }
 
     /**
@@ -158,16 +155,10 @@ final class MiraFlags
         return $this->current() !== null;
     }
 
-    /**
-     * The document in use, decoded.
-     *
-     * @return array{at: int, flags: array<string, array<array-key, mixed>>}|null
-     */
-    public function snapshot(): ?array
+    /** The document in use, as the JSON MIRA FIVE sent; pass it back as `document:` to start from it. */
+    public function snapshot(): ?string
     {
-        $document = $this->current();
-
-        return $document === null ? null : ['at' => $document->at, 'flags' => $document->flags];
+        return $this->current()?->json;
     }
 
     /**
@@ -178,12 +169,27 @@ final class MiraFlags
         return ['ready' => $this->current() !== null, 'etag' => $this->etag, 'fetchedAt' => $this->fetchedAt];
     }
 
+    /**
+     * @param  string|array<array-key, mixed>  $document
+     */
+    private function readSnapshot(string|array $document): ?Document
+    {
+        $json = is_string($document) ? $document : json_encode($document);
+        $parsed = is_string($json) ? Document::parse($json) : null;
+
+        if ($parsed === null) {
+            $this->reporter->report(new MiraError('unexpected', 'The document snapshot is not a flag document this SDK can read; it is ignored.'));
+        }
+
+        return $parsed;
+    }
+
     private function current(): ?Document
     {
         $snapshot = $this->snapshot;
 
         return $this->document
-            ?? ($snapshot !== null && self::now() - $snapshot->at < self::SNAPSHOT_MAX_AGE_MS ? $snapshot : null);
+            ?? ($snapshot !== null && Clock::ms() - $snapshot->at < self::SNAPSHOT_MAX_AGE_MS ? $snapshot : null);
     }
 
     private function refresh(): void
@@ -192,22 +198,28 @@ final class MiraFlags
             return;
         }
 
-        $this->adoptCached();
+        $this->adoptShared();
 
         if ($this->due()) {
             $this->fetch();
-            $this->storeCached();
+            // Failures are shared too, so an outage costs one timeout per interval, not one per request.
+            $this->store->set('document', [
+                'body' => $this->document?->json,
+                'etag' => $this->etag,
+                'fetchedAt' => $this->fetchedAt,
+                'checkedAt' => $this->checkedAt,
+            ]);
         }
     }
 
     private function due(): bool
     {
-        return $this->checkedAt === null || self::now() - $this->checkedAt >= $this->refreshMs;
+        return $this->checkedAt === null || Clock::ms() - $this->checkedAt >= $this->refreshMs;
     }
 
     private function fetch(): void
     {
-        $this->checkedAt = self::now();
+        $this->checkedAt = Clock::ms();
 
         try {
             $revalidate = $this->etag !== null && $this->document !== null ? ['If-None-Match' => $this->etag] : [];
@@ -224,7 +236,7 @@ final class MiraFlags
                 $this->etag = $response->header('etag');
             }
 
-            $this->fetchedAt = self::now();
+            $this->fetchedAt = Clock::ms();
         } catch (MiraError $error) {
             $this->refused = $error->status === 401 || $error->status === 403;
             $this->reporter->report($error);
@@ -232,86 +244,41 @@ final class MiraFlags
     }
 
     /** Another process may have refreshed the shared copy more recently. */
-    private function adoptCached(): void
+    private function adoptShared(): void
     {
-        $entry = $this->cacheGet();
+        $entry = $this->store->get('document');
 
-        if ($entry === null || ($this->checkedAt !== null && $entry['checkedAt'] <= $this->checkedAt)) {
+        if (! is_array($entry) || ! is_int($entry['checkedAt'] ?? null) || ($this->checkedAt !== null && $entry['checkedAt'] <= $this->checkedAt)) {
             return;
         }
 
-        if ($entry['body'] !== null && ($entry['etag'] === null || $entry['etag'] !== $this->etag)) {
-            $this->document = Document::parse($entry['body']) ?? $this->document;
+        $body = is_string($entry['body'] ?? null) ? $entry['body'] : null;
+        $etag = is_string($entry['etag'] ?? null) ? $entry['etag'] : null;
+
+        if ($body !== null && ($etag === null || $etag !== $this->etag)) {
+            $this->document = Document::parse($body) ?? $this->document;
         }
 
-        $this->etag = $entry['etag'] ?? $this->etag;
-        $this->fetchedAt = $entry['fetchedAt'] ?? $this->fetchedAt;
+        $this->etag = $etag ?? $this->etag;
+        $this->fetchedAt = is_int($entry['fetchedAt'] ?? null) ? $entry['fetchedAt'] : $this->fetchedAt;
         $this->checkedAt = $entry['checkedAt'];
     }
 
-    private function storeCached(): void
-    {
-        if ($this->cache === null) {
-            return;
-        }
-
-        // Failures are shared too, so a MIRA FIVE outage costs one timeout per interval, not one per request.
-        try {
-            $this->cache->set($this->cacheKey(), [
-                'body' => $this->document?->json,
-                'etag' => $this->etag,
-                'fetchedAt' => $this->fetchedAt,
-                'checkedAt' => $this->checkedAt,
-            ]);
-        } catch (Throwable) {
-            // A cache that cannot store only costs the next process a fetch.
-        }
-    }
-
     /**
-     * @return array{body: string|null, etag: string|null, fetchedAt: int|null, checkedAt: int}|null
-     */
-    private function cacheGet(): ?array
-    {
-        try {
-            $entry = $this->cache?->get($this->cacheKey());
-        } catch (Throwable) {
-            return null;
-        }
-
-        if (! is_array($entry) || ! is_int($entry['checkedAt'] ?? null)) {
-            return null;
-        }
-
-        return [
-            'body' => is_string($entry['body'] ?? null) ? $entry['body'] : null,
-            'etag' => is_string($entry['etag'] ?? null) ? $entry['etag'] : null,
-            'fetchedAt' => is_int($entry['fetchedAt'] ?? null) ? $entry['fetchedAt'] : null,
-            'checkedAt' => $entry['checkedAt'],
-        ];
-    }
-
-    private function cacheKey(): string
-    {
-        return 'mirafive.flags.'.substr(hash('sha256', $this->host.' '.$this->key), 0, 24);
-    }
-
-    /**
-     * One POST per unit and minute; a failure answers "unavailable" and pauses lookups for a minute.
+     * Answers are kept a minute. A failed lookup answers "unavailable" and skips lookups for 30 s (or Retry-After).
      *
      * @return Membership|'unavailable'
      */
     private function lookUp(?string $userId, ?string $anonymousId): Membership|string
     {
-        $now = self::now();
-        $unit = json_encode([$userId, $anonymousId], JSON_THROW_ON_ERROR);
-        $known = $this->memberships[$unit] ?? null;
+        $name = Store::hashed('segments', [$userId, $anonymousId]);
+        $known = $this->store->get($name);
 
-        if ($known !== null && $known[0] > $now) {
-            return $known[1];
+        if (is_array($known)) {
+            return self::membership(['units' => [$known]]);
         }
 
-        if ($now < $this->lookupsFrom) {
+        if ($this->lookups->isOpen()) {
             return Facts::UNAVAILABLE;
         }
 
@@ -322,17 +289,13 @@ final class MiraFlags
             ));
             $membership = self::membership($response->json());
         } catch (MiraError $error) {
-            $this->lookupsFrom = $now + max(self::LOOKUP_TTL_MS, $error->retryAfterMs ?? 0);
+            $this->lookups->trip(max(Breaker::OPEN_MS, $error->retryAfterMs ?? 0));
             $this->reporter->report($error);
 
             return Facts::UNAVAILABLE;
         }
 
-        if (count($this->memberships) >= self::MAX_REMEMBERED) {
-            array_shift($this->memberships);
-        }
-
-        $this->memberships[$unit] = [$now + self::LOOKUP_TTL_MS, $membership];
+        $this->store->set($name, ['segments' => $membership->in, 'unavailable' => $membership->unavailable], self::MEMBERSHIP_TTL_SECONDS);
 
         return $membership;
     }
@@ -370,7 +333,7 @@ final class MiraFlags
                 'Authorization' => 'Bearer '.$this->key,
                 'Accept' => 'application/json',
                 'User-Agent' => Mira::SDK.' (PHP '.PHP_VERSION.')',
-            ], $body, $timeoutMs);
+            ], $body, $timeoutMs, min($this->connectTimeoutMs, $timeoutMs));
         } catch (TransportException $exception) {
             throw new MiraError($exception->timedOut ? 'timeout' : 'network_error', $exception->getMessage(), retryable: true, previous: $exception);
         } catch (Throwable $exception) {
@@ -384,24 +347,16 @@ final class MiraFlags
         return $response;
     }
 
-    /** Once per unit, experiment and variant an hour in this process, stamped at read time. */
+    /** Once per unit, experiment and variant an hour, across processes when a cache is shared, stamped at read time. */
     private function expose(string $key, string $variant, ?string $userId, ?string $anonymousId): void
     {
-        $now = self::now();
-        $seen = json_encode([$key, $variant, $userId, $anonymousId], JSON_THROW_ON_ERROR);
+        $seen = Store::hashed('exposed', [$key, $variant, $userId, $anonymousId]);
 
-        $countedAt = $this->exposed[$seen] ?? null;
-
-        if (($countedAt !== null && $now - $countedAt < self::EXPOSURE_TTL_MS) || ($userId === null && $anonymousId === null)) {
+        if (($userId === null && $anonymousId === null) || $this->store->get($seen) !== null) {
             return;
         }
 
-        if (count($this->exposed) >= self::MAX_REMEMBERED) {
-            array_shift($this->exposed);
-        }
-
-        unset($this->exposed[$seen]);
-        $this->exposed[$seen] = $now;
+        $this->store->set($seen, 1, self::EXPOSURE_TTL_SECONDS);
         $mira = $this->mira ??= new Mira(key: $this->key, host: $this->host, transport: $this->transport, onError: $this->reporter->report(...), enabled: $this->enabled);
 
         if ($mira->mode === Mode::Consentless) {
@@ -413,10 +368,5 @@ final class MiraFlags
         } catch (InvalidArgumentException) {
             // A key or variant the collector would drop anyway.
         }
-    }
-
-    private static function now(): int
-    {
-        return (int) floor(microtime(true) * 1000);
     }
 }

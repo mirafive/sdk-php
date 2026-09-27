@@ -38,6 +38,8 @@ final class Mira
 
     private readonly Reporter $reporter;
 
+    private readonly Breaker $breaker;
+
     private readonly Delivery $delivery;
 
     /** @var list<array<string, mixed>> */
@@ -52,6 +54,7 @@ final class Mira
      * @param  string|null  $host  null reads MIRAFIVE_HOST, else https://events.mirafive.io
      * @param  (callable(MiraError): void)|null  $onError  receives every delivery failure
      * @param  CacheInterface|null  $cache  shares the flag document between PHP processes
+     * @param  int  $flushDeadlineMs  what one flush may spend on attempts and waits together
      * @param  bool  $enabled  false: nothing leaves the process and no key is needed, but input is still checked
      * @param  bool  $flushOnShutdown  false when the framework flushes on terminate
      * @param  (Closure(string, string): void)|null  $handOff  receives buffered batches (body, batch id) instead of sending them
@@ -63,6 +66,8 @@ final class Mira
         public readonly Mode $mode = Mode::Full,
         private readonly int $flushAt = 100,
         int $timeoutMs = 5_000,
+        private readonly int $connectTimeoutMs = 1_000,
+        private readonly int $flushDeadlineMs = 3_000,
         int $maxRetries = 2,
         int $maxRetryAfterMs = 3_000,
         ?Transport $transport = null,
@@ -75,19 +80,21 @@ final class Mira
         private readonly ?Closure $handOff = null,
         ?Closure $sleep = null,
     ) {
-        if ($flushAt < 1 || $flushAt > self::MAX_BATCH_SIZE || $timeoutMs < 1 || $maxRetries < 0 || $maxRetryAfterMs < 0) {
-            throw new InvalidArgumentException('flushAt is 1–1000, timeoutMs positive, maxRetries and maxRetryAfterMs at least 0.');
+        if ($flushAt < 1 || $flushAt > self::MAX_BATCH_SIZE || min($timeoutMs, $connectTimeoutMs, $flushDeadlineMs) < 1 || $maxRetries < 0 || $maxRetryAfterMs < 0) {
+            throw new InvalidArgumentException('flushAt is 1–1000, the timeouts and the deadline positive, maxRetries and maxRetryAfterMs at least 0.');
         }
 
         $this->key = Env::key($key);
         $this->host = Env::host($host);
         $this->transport = $transport ?? (extension_loaded('curl') ? new CurlTransport : new StreamTransport);
         $this->reporter = new Reporter($onError, $logger);
+        $this->breaker = new Breaker(new Store($cache, $this->host, $this->key), 'batch.breaker');
         $this->delivery = new Delivery(
             $this->transport,
             $this->host,
             $this->key,
             $timeoutMs,
+            $connectTimeoutMs,
             $maxRetries,
             $maxRetryAfterMs,
             $sleep ?? static function (int $ms): void {
@@ -126,7 +133,7 @@ final class Mira
             'properties' => $properties,
             'time' => $time,
             'page' => $page,
-        ], $this->mode, self::now()));
+        ], $this->mode, Clock::ms()));
     }
 
     /**
@@ -155,7 +162,11 @@ final class Mira
             throw new InvalidArgumentException('A batch carries 1–1000 events.');
         }
 
-        $now = self::now();
+        if ($idempotencyKey === '') {
+            throw new InvalidArgumentException('An idempotency key is a non-empty string (PROTOCOL §5).');
+        }
+
+        $now = Clock::ms();
         $wire = [];
 
         foreach ($events as $event) {
@@ -173,6 +184,7 @@ final class Mira
 
     /**
      * Delivers a batch a hand-off encoded, with the usual retries. The key is this client's, never the message's.
+     * Events the collector refuses are reported and dropped, and the rest is resent, as for buffered batches.
      *
      * @throws MiraError
      */
@@ -180,18 +192,31 @@ final class Mira
     {
         [$batchId, $count] = Delivery::inspect($body);
 
-        return $this->enabled ? $this->delivery->post($body, $batchId) : new Receipt($batchId, $count, 0);
+        return $this->enabled ? $this->deliverRecovering($body, $batchId, null) : new Receipt($batchId, $count, 0);
     }
 
-    /** Sends the buffer. Failures go to onError (or the logger); nothing is thrown. */
+    /**
+     * Sends the buffer within `flushDeadlineMs`. Failures go to onError (or the logger); nothing is thrown. After a
+     * failed flush, flushes skip the network for 30 s and drop their events.
+     */
     public function flush(): void
     {
         $events = $this->buffer;
         $this->buffer = [];
 
-        if ($events !== []) {
-            $this->deliverSplitting($events);
+        if ($events === []) {
+            return;
         }
+
+        if ($this->handOff === null && $this->breaker->isOpen()) {
+            if ($this->breaker->firstSkip()) {
+                $this->reporter->report(new MiraError('network_error', 'Delivery failed recently; events are dropped for up to 30 s without trying the network.', retryable: true));
+            }
+
+            return;
+        }
+
+        $this->deliverSplitting($events, new Budget($this->flushDeadlineMs));
     }
 
     /** The flags of this source, sharing key, host, transport and cache. Server-counted exposures go through this client. */
@@ -201,6 +226,7 @@ final class Mira
             key: $this->key,
             host: $this->host,
             refreshSeconds: $this->flagsRefreshSeconds,
+            connectTimeoutMs: $this->connectTimeoutMs,
             cache: $this->cache,
             enabled: $this->enabled,
             mira: $this,
@@ -239,27 +265,54 @@ final class Mira
      *
      * @param  list<array<string, mixed>>  $events
      */
-    private function deliverSplitting(array $events): void
+    private function deliverSplitting(array $events, Budget $budget): void
     {
         try {
             $batchId = BatchId::random();
             $body = Delivery::encode($events, $batchId, $this->mode);
 
             if ($this->handOff === null) {
-                $this->delivery->post($body, $batchId);
+                $this->deliverRecovering($body, $batchId, $budget);
             } else {
                 $this->handOver($this->handOff, $body, $batchId);
             }
         } catch (MiraError $error) {
             if ($error->errorCode !== 'payload_too_large' || count($events) === 1) {
+                if ($error->retryable) {
+                    $this->breaker->trip();
+                }
+
                 $this->reporter->report($error);
 
                 return;
             }
 
             $half = intdiv(count($events), 2);
-            $this->deliverSplitting(array_slice($events, 0, $half));
-            $this->deliverSplitting(array_slice($events, $half));
+            $this->deliverSplitting(array_slice($events, 0, $half), $budget);
+            $this->deliverSplitting(array_slice($events, $half), $budget);
+        }
+    }
+
+    /**
+     * One refused event must not cost its whole batch: on `validation_failed` the named events are reported and
+     * dropped, and the rest is resent, at most three times.
+     *
+     * @throws MiraError
+     */
+    private function deliverRecovering(string $body, string $batchId, ?Budget $budget, int $round = 0): Receipt
+    {
+        try {
+            return $this->delivery->post($body, $batchId, $budget);
+        } catch (MiraError $error) {
+            $rest = $round < 3 ? Delivery::withoutRefused($body, $error) : null;
+
+            if ($rest === null) {
+                throw $error;
+            }
+
+            $this->reporter->report($rest[2]);
+
+            return $this->deliverRecovering($rest[0], $rest[1], $budget, $round + 1);
         }
     }
 
@@ -275,10 +328,5 @@ final class Mira
         } catch (Throwable $exception) {
             $this->reporter->report(new MiraError('unexpected', 'The hand-off failed: '.$exception->getMessage(), previous: $exception));
         }
-    }
-
-    private static function now(): int
-    {
-        return (int) floor(microtime(true) * 1000);
     }
 }

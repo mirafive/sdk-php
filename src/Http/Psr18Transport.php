@@ -18,7 +18,7 @@ final readonly class Psr18Transport implements Transport
         private StreamFactoryInterface $streams,
     ) {}
 
-    public function request(string $method, string $url, array $headers, ?string $body, int $timeoutMs): Response
+    public function request(string $method, string $url, array $headers, ?string $body, int $timeoutMs, int $connectTimeoutMs): Response
     {
         $request = $this->requests->createRequest($method, $url);
 

@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace MiraFive\Http;
 
-/** The fallback when ext-curl is missing. */
+/** The fallback when ext-curl is missing. PHP streams have one timeout, for connecting and reading alike. */
 final class StreamTransport implements Transport
 {
-    public function request(string $method, string $url, array $headers, ?string $body, int $timeoutMs): Response
+    public function request(string $method, string $url, array $headers, ?string $body, int $timeoutMs, int $connectTimeoutMs): Response
     {
         $lines = [];
 
