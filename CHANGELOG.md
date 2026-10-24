@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking:** feature flags and A/B experiments are removed: `MiraFive\Flags\*` (`MiraFlags`, `UserFlags`, `Evaluation`, `Reason`, `ErrorCode`), `Mira::flags()` and the `flagsRefreshSeconds` option. The flag fixtures are removed too.
+
 ## 1.0.0 — 2026-09-27
 
 First release on the v1 ingest protocol.

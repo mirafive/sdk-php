@@ -1,6 +1,6 @@
 # MIRA FIVE for PHP
 
-Privacy-first analytics and feature flags for PHP servers: send events from your backend and evaluate flags in-process, hosted in the EU.
+Privacy-first analytics for PHP servers: send events from your backend, hosted in the EU.
 
 ## Install
 
@@ -80,10 +80,9 @@ new Mira(
     transport: null,        // MiraFive\Http\Transport; default CurlTransport, else StreamTransport
     onError: null,          // callable(MiraError): void, receives every delivery failure
     logger: null,           // Psr\Log\LoggerInterface, used when there is no onError
-    cache: null,            // Psr\SimpleCache\CacheInterface, shared between processes: the delivery breaker and all flag state
+    cache: null,            // Psr\SimpleCache\CacheInterface, shared between processes: the delivery breaker
     enabled: true,          // false: nothing leaves the process and no key is needed; input is still checked
     flushOnShutdown: true,  // false: no shutdown function (your framework flushes on terminate)
-    flagsRefreshSeconds: 30,// refresh interval of flags()
     handOff: null,          // Closure(string $body, string $batchId): void, receives buffered batches instead of sending them
 );
 ```
@@ -95,11 +94,10 @@ new Mira(
 | `send(array $events, ?string $idempotencyKey = null): Receipt` | Sends 1–1000 events now as one batch. The idempotency key, when given, must not be empty. Each event is an array with `name` and optionally `userId`, `anonymousId`, `sessionId`, `properties`, `time`, `page`, `id`. Throws `MiraError`. |
 | `flush(): void` | Sends the buffer, or hands it to `handOff`. Never throws; failures go to `onError`, the logger, or `error_log()`. |
 | `deliverPrepared(string $body): Receipt` | Sends a batch a `handOff` received, with the usual retries and the refused-event recovery below, under this client's key. Throws `MiraError`. |
-| `flags(): Flags\MiraFlags` | The flags of this source, sharing key, host, transport and cache. |
 
 The buffer is also sent when `flushAt` is reached, when the `Mira` object is destroyed, and once in a shutdown function at the end of the request (unless `flushOnShutdown: false`).
 
-**Defaults.** `flushAt` 100 events, `timeoutMs` 5,000 per attempt, `connectTimeoutMs` 1,000, `flushDeadlineMs` 3,000, `maxRetries` 2, `maxRetryAfterMs` 3,000. They are lower than the Node server SDK's (10 s timeout, 3 retries) because delivery usually runs inside a PHP web request. For flags: `refreshSeconds` 30, a 1,500 ms document fetch, a 500 ms segment lookup and a 1,000 ms connect timeout.
+**Defaults.** `flushAt` 100 events, `timeoutMs` 5,000 per attempt, `connectTimeoutMs` 1,000, `flushDeadlineMs` 3,000, `maxRetries` 2, `maxRetryAfterMs` 3,000. They are lower than the Node server SDK's (10 s timeout, 3 retries) because delivery usually runs inside a PHP web request.
 
 **Outages.** A flush never takes longer than `flushDeadlineMs`: each attempt's timeout shrinks to what is left, and a wait that would pass the deadline ends the flush. After a flush fails for a retryable reason, flushes skip the network for 30 s and drop their events; the first skip is reported to `onError`. With a PSR-16 `cache`, that 30 s pause holds for every PHP process, so an outage costs one request a timeout rather than every request. `send()` and `deliverPrepared()` are not paused; they always try.
 
@@ -115,7 +113,7 @@ The buffer is also sent when `flushAt` is reached, when the `Mira` object is des
 
 - **Deliver from a queue.** With `handOff`, every buffered flush (explicit, at `flushAt`, on shutdown) passes the encoded batch to your closure instead of sending it. Put the body on a queue; the worker calls `$mira->deliverPrepared($body)` on its own `Mira`, so the key never travels in the message. The body is final: retries resend it byte for byte under its batch id, so a job that runs twice is stored once. `send()` ignores `handOff` and always sends immediately.
 - **Flush on terminate.** Frameworks pass `flushOnShutdown: false` and call `flush()` after the response.
-- **Local and test environments.** `enabled: false` sends nothing and needs no key, but refuses the same input as production. `track()` keeps nothing, `send()` and `deliverPrepared()` return a local receipt with every event accepted, and flags answer their fallbacks.
+- **Local and test environments.** `enabled: false` sends nothing and needs no key, but refuses the same input as production. `track()` keeps nothing, `send()` and `deliverPrepared()` return a local receipt with every event accepted.
 
 ### `MiraFive\Receipt`
 
@@ -145,73 +143,6 @@ $mira = new Mira(transport: new Psr18Transport($client, $requestFactory, $stream
 
 A PSR-18 client applies its own timeout. Keep it short: delivery runs inside your request.
 
-## Flags
-
-```php
-$flags = $mira->flags(); // or new MiraFive\Flags\MiraFlags(key: …, cache: $psr16Cache)
-
-$user = $flags->for(
-    userId: 'u_42',
-    properties: ['plan' => 'pro'],
-    consent: ['experiments' => true, 'targeting' => false], // optional: the banner's answer
-    optedOut: false,                                        // true when the request carries Sec-GPC: 1 or DNT: 1
-);
-
-$user->enabled('new-checkout');            // bool
-$user->variant('pricing-test');            // ?string
-$user->config('limits', ['max' => 3]);     // the variant's value, objects as arrays
-$user->evaluate('pricing-test');           // Evaluation: variant, reason, rule, errorCode, value
-```
-
-`for()` takes `userId` (the unit of flags assigned by signed-in person), `anonymousId` (MIRA FIVE's anonymous id from the browser SDK, the unit of flags assigned by browser) and `properties` (facts your rules test; they stay in memory and are never sent). Reads are synchronous and never throw: without a document, or for an unknown key, they answer your fallback.
-
-**Consent and opt-out** (FLAGS.md §5.1). Leave a scope out of `consent` when your own lawful basis applies; set it to `false` when the person declined:
-
-| Input | Effect |
-|---|---|
-| `consent: ['experiments' => false]` | The anonymous id is not used, so flags assigned by browser answer their default. Every experiment answers its default (`NOT_ALLOWED`) and nobody is counted |
-| `consent: ['targeting' => false]` | No segment lookup; segment conditions are false (`NOT_ALLOWED`) |
-| `optedOut: true` | No unit at all, no segment lookup, no exposure, whatever `consent` says. Fixed values and property rules still apply |
-
-**The document.** `MiraFlags` fetches `GET {host}/v1/flags` on first use and again on a read once it is older than `refreshSeconds` (default 30, at least 10), revalidating with `If-None-Match`. PHP-FPM starts every request with an empty process, so pass a PSR-16 cache: it shares the document (and failed fetches), segment memberships, the lookup pause and the hourly exposure marks between requests. Without one, each request fetches the document once and an experiment may be counted once per request.
-
-```php
-new MiraFlags(
-    key: null,              // null reads MIRAFIVE_SECRET_KEY
-    host: null,
-    refreshSeconds: 30,
-    timeoutMs: 1_500,       // the document fetch
-    lookupTimeoutMs: 500,   // the segment lookup
-    connectTimeoutMs: 1_000,
-    cache: null,            // Psr\SimpleCache\CacheInterface
-    document: null,         // a snapshot (a snapshot() string, or an array), used while none was fetched and while younger than 7 days
-    enabled: true,          // false: never fetches or looks up, so reads answer their fallbacks
-    mira: null,             // sends exposures; defaults to a client on the same key
-    transport: null,
-    onError: null,
-    logger: null,
-);
-```
-
-**Segments.** When a flag tests segments, `for()` asks `POST {host}/v1/flags/segments` about the unit once per minute, with a short timeout. If the lookup fails, lookups pause for 30 s (or as long as `Retry-After` asks), segment conditions count as false and `evaluate()` reports `MEMBERSHIP_UNAVAILABLE`.
-
-**Snapshots.** `$flags->snapshot()` returns the document in use as the JSON string MIRA FIVE sent (or null). Store it at build or deploy time and pass it back as `document:` to start from it while MIRA FIVE is unreachable. A `document` that cannot be read is reported to `onError` and ignored.
-
-**Experiments.** `enabled`, `variant` and `config` send one `$exposure` per person, experiment and variant for experiments counted on your server. `evaluate()` never counts anyone. Experiments counted in the browser answer their default on the server (`NOT_ALLOWED`).
-
-**Bootstrap.** Hand the server's answers to the browser SDK so the first paint shows the right variant:
-
-```php
-foreach (MiraFive\Flags\MiraFlags::BOOTSTRAP_HEADERS as $name => $value) {
-    header("{$name}: {$value}"); // Cache-Control: private, no-store
-}
-
-echo $user->bootstrap(); // <script type="application/json" id="mirafive-flags">…</script>
-```
-
-Only flags your website reads are included, and every `<`, `>`, `&`, U+2028 and U+2029 is escaped, so no value can end the script. Never let a shared cache store such a page.
-
-**Reasons** (`MiraFive\Flags\Reason`): `STATIC`, `TARGETING_MATCH`, `SPLIT`, `DEFAULT`, `DISABLED`, `ERROR`. **Error codes** (`MiraFive\Flags\ErrorCode`): `UNSUPPORTED` (the flag needs a newer SDK), `NOT_READY`, `FLAG_NOT_FOUND`, `MEMBERSHIP_UNAVAILABLE`, `NOT_ALLOWED`.
 
 ## Troubleshooting
 
@@ -221,7 +152,6 @@ Only flags your website reads are included, and every `<`, `>`, `&`, U+2028 and 
 - **`InvalidArgumentException: A consentless client may not send userId`.** The client is in `Mode::Consentless`; drop the identifiers or use `Mode::Full` where you have consent.
 - **Events arrive only at the end of a long job, or never, in a worker.** Octane, RoadRunner, Swoole and queue workers run for many requests, so the shutdown flush only fires when the worker stops. Call `$mira->flush()` after each request or job (the Laravel and Symfony packages do).
 - **Slow responses when MIRA FIVE is unreachable.** A flush is capped at `flushDeadlineMs` (3 s), and after a failure flushes skip the network for 30 s. Pass a PSR-16 `cache` so that pause covers every PHP-FPM process, or lower `flushDeadlineMs`. For no delivery work in the request at all, use `handOff` with a queue.
-- **Flags always answer the fallback.** Look at `$flags->status()` and `$user->evaluate($key)->errorCode`: `NOT_READY` means no document yet (see `onError`), `FLAG_NOT_FOUND` that the flag is not served to this source.
 
 ## For AI agents
 
@@ -235,7 +165,7 @@ Add MIRA FIVE server-side analytics to this PHP application with the Composer pa
    print it into HTML or JavaScript. Add MIRAFIVE_SECRET_KEY= to .env.example if the project has one.
 3. Create one shared MiraFive\Mira instance at bootstrap (e.g. `$mira = new \MiraFive\Mira();`) and reuse it.
    Under PHP-FPM, pass a PSR-16 cache the app already has (`cache: $psr16Cache`): it lets the SDK pause
-   delivery for every process during an outage and share flag state between requests.
+   delivery for every process during an outage.
 4. Track the few business events that matter (e.g. signup, order completed) with
    `$mira->track('signup', userId: (string) $user->id, properties: ['plan' => $plan]);`.
    Use the app's internal user id, never an e-mail address. No personal data in names or properties.
@@ -251,7 +181,7 @@ Add MIRA FIVE server-side analytics to this PHP application with the Composer pa
 
 (b) Facts for agents:
 
-- Package `mirafive/sdk-php`, namespace `MiraFive`. Classes: `MiraFive\Mira`, `MiraFive\Mode` (`Full`, `Consentless`), `MiraFive\Receipt`, `MiraFive\MiraError`, `MiraFive\Flags\MiraFlags`, `MiraFive\Flags\UserFlags`, `MiraFive\Flags\Evaluation`, `MiraFive\Http\Psr18Transport`.
+- Package `mirafive/sdk-php`, namespace `MiraFive`. Classes: `MiraFive\Mira`, `MiraFive\Mode` (`Full`, `Consentless`), `MiraFive\Receipt`, `MiraFive\MiraError`, `MiraFive\Http\Psr18Transport`.
 - Environment: `MIRAFIVE_SECRET_KEY` (required), `MIRAFIVE_HOST` (optional, default `https://events.mirafive.io`).
 - The secret key never goes to a browser. Browsers use the website key with `@mirafive/sdk-browser` or the hosted tracker.
 - `track()` and `identify()` buffer; the buffer is flushed on shutdown (once), on destruction, at `flushAt` events, or by `flush()`. `send()` is immediate and throws `MiraError`.

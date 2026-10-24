@@ -7,7 +7,6 @@ namespace MiraFive;
 use Closure;
 use DateTimeInterface;
 use InvalidArgumentException;
-use MiraFive\Flags\MiraFlags;
 use MiraFive\Http\CurlTransport;
 use MiraFive\Http\StreamTransport;
 use MiraFive\Http\Transport;
@@ -47,13 +46,11 @@ final class Mira
 
     private bool $shutdownRegistered = false;
 
-    private ?MiraFlags $flags = null;
-
     /**
      * @param  string|false|null  $key  the source's secret key; null reads MIRAFIVE_SECRET_KEY
      * @param  string|null  $host  null reads MIRAFIVE_HOST, else https://events.mirafive.io
      * @param  (callable(MiraError): void)|null  $onError  receives every delivery failure
-     * @param  CacheInterface|null  $cache  shares the flag document between PHP processes
+     * @param  CacheInterface|null  $cache  shares the delivery breaker between PHP processes
      * @param  int  $flushDeadlineMs  what one flush may spend on attempts and waits together
      * @param  bool  $enabled  false: nothing leaves the process and no key is needed, but input is still checked
      * @param  bool  $flushOnShutdown  false when the framework flushes on terminate
@@ -76,7 +73,6 @@ final class Mira
         private readonly ?CacheInterface $cache = null,
         public readonly bool $enabled = true,
         private readonly bool $flushOnShutdown = true,
-        private readonly int $flagsRefreshSeconds = 30,
         private readonly ?Closure $handOff = null,
         ?Closure $sleep = null,
     ) {
@@ -217,22 +213,6 @@ final class Mira
         }
 
         $this->deliverSplitting($events, new Budget($this->flushDeadlineMs));
-    }
-
-    /** The flags of this source, sharing key, host, transport and cache. Server-counted exposures go through this client. */
-    public function flags(): MiraFlags
-    {
-        return $this->flags ??= new MiraFlags(
-            key: $this->key,
-            host: $this->host,
-            refreshSeconds: $this->flagsRefreshSeconds,
-            connectTimeoutMs: $this->connectTimeoutMs,
-            cache: $this->cache,
-            enabled: $this->enabled,
-            mira: $this,
-            transport: $this->transport,
-            onError: $this->reporter->report(...),
-        );
     }
 
     /**

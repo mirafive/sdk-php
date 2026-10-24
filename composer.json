@@ -3,7 +3,7 @@
     "description": "MIRA FIVE SDK for PHP",
     "type": "library",
     "license": "MIT",
-    "keywords": ["analytics", "privacy", "gdpr", "feature-flags", "experiments", "mirafive"],
+    "keywords": ["analytics", "privacy", "gdpr", "mirafive"],
     "homepage": "https://mirafive.io",
     "authors": [
         {
@@ -29,7 +29,7 @@
         "psr/http-client": "Send through your own PSR-18 client (with Http\\Psr18Transport).",
         "psr/http-factory": "PSR-17 factories for Http\\Psr18Transport.",
         "psr/log": "Report delivery failures to a PSR-3 logger.",
-        "psr/simple-cache": "Share the flag document between PHP processes with a PSR-16 cache."
+        "psr/simple-cache": "Share the delivery breaker between PHP processes with a PSR-16 cache."
     },
     "autoload": {
         "psr-4": {

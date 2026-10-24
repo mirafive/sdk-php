@@ -409,21 +409,12 @@ it('sends nothing and needs no key when disabled, but still checks input', funct
     $mira->flush();
     $receipt = $mira->send([['name' => 'a'], ['name' => 'b']], idempotencyKey: 'order-981');
     $prepared = $mira->deliverPrepared('{"v":1,"batch":"b","mode":"full","events":[{"name":"a"}]}');
-    $user = $mira->flags()->for(userId: 'u_42');
 
     expect($transport->requests)->toBeEmpty()
         ->and($receipt)->toEqual(new Receipt(BatchId::fromIdempotencyKey('order-981'), 2, 0))
         ->and($prepared)->toEqual(new Receipt('b', 1, 0))
-        ->and($user->variant('pricing-test', 'fallback'))->toBe('fallback')
-        ->and($user->enabled('new-checkout', true))->toBeTrue()
         ->and(fn () => $mira->track(' padded'))->toThrow(InvalidArgumentException::class)
         ->and(fn () => $mira->send([['name' => '$nope']]))->toThrow(InvalidArgumentException::class);
-});
-
-it('passes its flag refresh interval to flags()', function (): void {
-    $flags = (new Mira(key: KEY, transport: transport(), flagsRefreshSeconds: 120))->flags();
-
-    expect((new ReflectionProperty($flags, 'refreshMs'))->getValue($flags))->toBe(120_000);
 });
 
 it('names the default host', function (): void {

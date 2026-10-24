@@ -1,7 +1,7 @@
 # AGENTS.md
 
 `mirafive/sdk-php`: the PHP SDK of MIRA FIVE. The public surface is fixed by the `mirafive/sdk-php` section of
-`API.md` in the protocol repository; the wire by `PROTOCOL.md`, flag semantics by `FLAGS.md`. Change those first.
+`API.md` in the protocol repository; the wire by `PROTOCOL.md`. Change those first.
 
 ## Commands
 
@@ -23,8 +23,6 @@ composer test       # pest
 - Retries resend the byte-identical body; never rebuild a batch between attempts.
 - `tests/Fixtures/*.json` are byte-identical copies from the protocol repository (`fixtures/`). Never edit them:
   recopy and update the sha256 pins in `tests/Unit/FixturesTest.php`.
-- The evaluator is pure and must pass every case in `flag-eval.cases.json`; behaviour changes start in the shared
-  fixtures, not here.
 - Tests never touch the network: use `tests/Support/FakeTransport`.
 - Comments only for non-obvious constraints, one or two lines.
 

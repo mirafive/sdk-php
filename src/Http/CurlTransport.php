@@ -8,7 +8,7 @@ use CurlHandle;
 
 final class CurlTransport implements Transport
 {
-    /** Kept between requests so the flag fetch, a lookup and the batch share one connection. */
+    /** Kept between requests so the batches of one request share one connection. */
     private ?CurlHandle $handle = null;
 
     public function request(string $method, string $url, array $headers, ?string $body, int $timeoutMs, int $connectTimeoutMs): Response
