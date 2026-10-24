@@ -69,7 +69,7 @@ Rules that hold in both modes:
 ```php
 new Mira(
     key: null,              // string|false|null. null reads MIRAFIVE_SECRET_KEY; getenv() results are accepted as-is
-    host: null,             // null reads MIRAFIVE_HOST, else Mira::DEFAULT_HOST (https://events.mirafive.io). A scheme is required
+    host: null,             // null reads MIRAFIVE_HOST, else Mira::DEFAULT_HOST (https://collect.mirafive.io). A scheme is required
     mode: Mode::Full,
     flushAt: 100,           // send once this many events are buffered (1–1000)
     timeoutMs: 5_000,       // per attempt
@@ -170,19 +170,20 @@ Add MIRA FIVE server-side analytics to this PHP application with the Composer pa
    `$mira->track('signup', userId: (string) $user->id, properties: ['plan' => $plan]);`.
    Use the app's internal user id, never an e-mail address. No personal data in names or properties.
    After login or signup call `$mira->identify((string) $user->id, ['plan' => $plan]);`.
-5. For webhooks that can be delivered twice, use
+5. For revenue add `'payment_id' => $paymentIntent->id` (1–255 characters, the payment provider's id of the payment; for Stripe a PaymentIntent `pi_…`, Charge, Invoice or Checkout Session id) to the properties. MIRA FIVE merges the event with the payment it imports from the connected Stripe account, so the sale counts once.
+6. For webhooks that can be delivered twice, use
    `$mira->send([['name' => 'order completed', 'userId' => (string) $userId, 'properties' => ['revenue' => $amount, 'currency' => 'EUR']]], idempotencyKey: $orderId);`.
-6. The buffer flushes when the request ends. In long-running workers (queues, Octane, RoadRunner)
+7. The buffer flushes when the request ends. In long-running workers (queues, Octane, RoadRunner)
    call `$mira->flush()` after each job or request.
-7. Pass `onError: fn (\MiraFive\MiraError $e) => <the app's logger>` so delivery failures are visible.
-8. Verify: `$receipt = $mira->send([['name' => '$install_check']]);` must return a Receipt whose
+8. Pass `onError: fn (\MiraFive\MiraError $e) => <the app's logger>` so delivery failures are visible.
+9. Verify: `$receipt = $mira->send([['name' => '$install_check']]);` must return a Receipt whose
    `reason` is 'install_check' (it is never stored or billed). Report the result.
 ```
 
 (b) Facts for agents:
 
 - Package `mirafive/sdk-php`, namespace `MiraFive`. Classes: `MiraFive\Mira`, `MiraFive\Mode` (`Full`, `Consentless`), `MiraFive\Receipt`, `MiraFive\MiraError`, `MiraFive\Http\Psr18Transport`.
-- Environment: `MIRAFIVE_SECRET_KEY` (required), `MIRAFIVE_HOST` (optional, default `https://events.mirafive.io`).
+- Environment: `MIRAFIVE_SECRET_KEY` (required), `MIRAFIVE_HOST` (optional, default `https://collect.mirafive.io`).
 - The secret key never goes to a browser. Browsers use the website key with `@mirafive/sdk-browser` or the hosted tracker.
 - `track()` and `identify()` buffer; the buffer is flushed on shutdown (once), on destruction, at `flushAt` events, or by `flush()`. `send()` is immediate and throws `MiraError`.
 - Ids are strings: cast integer ids with `(string)`. Under PHP-FPM pass a PSR-16 `cache`.

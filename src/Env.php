@@ -19,7 +19,7 @@ final class Env
         $host = $host ?? self::read('MIRAFIVE_HOST') ?? Mira::DEFAULT_HOST;
 
         if (preg_match('#^https?://[^/\s]+#i', $host) !== 1) {
-            throw new InvalidArgumentException("The host needs a scheme, e.g. https://events.mirafive.io; got \"{$host}\".");
+            throw new InvalidArgumentException("The host needs a scheme, e.g. https://collect.mirafive.io; got \"{$host}\".");
         }
 
         return rtrim($host, '/');

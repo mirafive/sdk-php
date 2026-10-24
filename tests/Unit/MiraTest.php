@@ -270,7 +270,7 @@ it('reads the key and host from the environment', function (): void {
 });
 
 it('refuses a host without a scheme', function (): void {
-    new Mira(key: KEY, host: 'events.mirafive.io');
+    new Mira(key: KEY, host: 'collect.mirafive.io');
 })->throws(InvalidArgumentException::class);
 
 it('refuses identifiers in consentless mode', function (Closure $call): void {
@@ -290,6 +290,15 @@ it('sends consentless batches without identifiers', function (): void {
 
     expect($transport->body(0)['mode'])->toBe('consentless')
         ->and(array_keys($transport->body(0)['events'][0]))->toBe(['name', 'time', 'properties']);
+});
+
+it('sends payment_id next to revenue and currency', function (): void {
+    $transport = transport(accepted());
+    $properties = ['revenue' => 49.9, 'currency' => 'EUR', 'payment_id' => 'pi_3Q1b2c3d4e5f6g7h'];
+
+    client($transport)->send([['name' => 'order completed', 'userId' => 'u_42', 'properties' => $properties]]);
+
+    expect($transport->body(0)['events'][0]['properties'])->toBe($properties);
 });
 
 it('refuses events the collector would refuse', function (array $event): void {
@@ -421,7 +430,7 @@ it('names the default host', function (): void {
     $transport = transport(accepted());
     (new Mira(key: KEY, transport: $transport))->send([['name' => 'a']]);
 
-    expect(Mira::DEFAULT_HOST)->toBe('https://events.mirafive.io')
+    expect(Mira::DEFAULT_HOST)->toBe('https://collect.mirafive.io')
         ->and($transport->requests[0]['url'])->toBe(Mira::DEFAULT_HOST.'/v1/batch');
 });
 

@@ -27,7 +27,7 @@ final class Mira
 
     public const int MAX_BATCH_SIZE = 1000;
 
-    public const string DEFAULT_HOST = 'https://events.mirafive.io';
+    public const string DEFAULT_HOST = 'https://collect.mirafive.io';
 
     public readonly string $host;
 
@@ -48,7 +48,7 @@ final class Mira
 
     /**
      * @param  string|false|null  $key  the source's secret key; null reads MIRAFIVE_SECRET_KEY
-     * @param  string|null  $host  null reads MIRAFIVE_HOST, else https://events.mirafive.io
+     * @param  string|null  $host  null reads MIRAFIVE_HOST, else https://collect.mirafive.io
      * @param  (callable(MiraError): void)|null  $onError  receives every delivery failure
      * @param  CacheInterface|null  $cache  shares the delivery breaker between PHP processes
      * @param  int  $flushDeadlineMs  what one flush may spend on attempts and waits together
