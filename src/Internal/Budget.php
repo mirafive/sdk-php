@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace MiraFive;
+namespace MiraFive\Internal;
 
 /** @internal What one flush may still spend on attempts and waits together, in milliseconds. */
 final class Budget

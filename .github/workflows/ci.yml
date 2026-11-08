@@ -1,29 +1,20 @@
-name: CI
+name: ci
 
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
-    name: PHP ${{ matrix.php }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        php: ['8.3', '8.4', '8.5']
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: ${{ matrix.php }}
-          extensions: json, curl
-          coverage: none
-
-      - name: Install dependencies
-        run: composer update --no-interaction --no-progress --prefer-dist
-
-      - name: Check
-        run: composer check
+    # Pint, PHPStan and Pest on PHP 8.3 (lowest dependencies) and 8.5 (highest)
+    uses: mirafive/.github/.github/workflows/php-sdk.yml@d99bb0580ad7349345520d9dd4f9d49d62c3d060
+    with:
+      contract: true

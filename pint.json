@@ -1,7 +1,7 @@
 {
-    "preset": "laravel",
-    "rules": {
-        "declare_strict_types": true,
-        "final_class": false
-    }
+  "preset": "laravel",
+  "rules": {
+    "declare_strict_types": true,
+    "final_class": false
+  }
 }

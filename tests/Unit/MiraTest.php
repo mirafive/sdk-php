@@ -2,602 +2,428 @@
 
 declare(strict_types=1);
 
-use MiraFive\BatchId;
-use MiraFive\Http\TransportException;
+use MiraFive\Consent;
 use MiraFive\Mira;
 use MiraFive\MiraError;
-use MiraFive\Mode;
-use MiraFive\Receipt;
-use MiraFive\Tests\Support\ArrayCache;
-use MiraFive\Tests\Support\FakeTransport;
+use MiraFive\Testing\RecordingTransport;
+use Psr\Log\AbstractLogger;
 
-const KEY = 'mf_ab12cd34_secretTail';
+beforeEach(function (): void {
+    $this->transport = new RecordingTransport;
+    $this->errors = [];
+    $this->mira = client($this->transport, $this->errors);
+});
 
-/**
- * @param  list<int>  $slept
- * @param  list<MiraError>  $errors
- */
-function client(FakeTransport $transport, array &$slept = [], array &$errors = [], Mode $mode = Mode::Full, int $flushAt = 100, int $maxRetries = 2): Mira
-{
-    return new Mira(
-        key: KEY,
-        host: 'https://events.example.test/',
-        mode: $mode,
-        flushAt: $flushAt,
-        maxRetries: $maxRetries,
-        transport: $transport,
-        onError: function (MiraError $error) use (&$errors): void {
-            $errors[] = $error;
-        },
-        sleep: function (int $ms) use (&$slept): void {
-            $slept[] = $ms;
-        },
-    );
-}
+it('sends a track event in the wire format', function (): void {
+    $this->mira->track('report_exported', userId: 'user_42', properties: ['format' => 'csv'], timestamp: '2026-11-08T10:00:00+01:00');
+    $this->mira->flush();
 
-it('buffers events until flush and sends them as one protocol batch', function (): void {
-    $transport = transport(accepted(2));
-    $mira = client($transport);
+    $request = $this->transport->requests()[0];
+    $event = $request['batch']['events'][0];
 
-    $mira->track('signup', userId: 'u_42', properties: ['plan' => 'pro'], time: new DateTimeImmutable('@1727430100.123'));
-    $mira->identify('u_42', ['plan' => 'pro'], anonymousId: '5f0c1c8e-3e0e-4a57-9d59-3f7f2a6d1e44');
-
-    expect($transport->requests)->toBeEmpty();
-
-    $mira->flush();
-    $request = $transport->requests[0];
-    $body = $transport->body(0);
-
-    expect($request['method'])->toBe('POST')
-        ->and($request['url'])->toBe('https://events.example.test/v1/batch')
-        ->and($request['headers']['Authorization'])->toBe('Bearer '.KEY)
+    expect($request['url'])->toBe('https://ingest.test/v1/batch')
+        ->and($request['headers']['Authorization'])->toBe('Bearer mira_sk_test')
         ->and($request['headers']['Content-Type'])->toBe('application/json')
-        ->and($request['timeoutMs'])->toBe(3000)
-        ->and($request['connectTimeoutMs'])->toBe(1000)
-        ->and($body['v'])->toBe(1)
-        ->and($body['batch'])->toMatch('/^[0-9a-f-]{36}$/')
-        ->and($body['mode'])->toBe('full')
-        ->and($body['sentAt'])->toBeInt()
-        ->and($body['context'])->toBe(['sdk' => 'mirafive-php/1.0.0'])
-        ->and($body['events'][0])->toBe(['name' => 'signup', 'time' => 1727430100123, 'properties' => ['plan' => 'pro'], 'userId' => 'u_42'])
-        ->and($body['events'][1]['name'])->toBe('$identify')
-        ->and($body['events'][1]['anonymousId'])->toBe('5f0c1c8e-3e0e-4a57-9d59-3f7f2a6d1e44');
-
-    $mira->flush();
-
-    expect($transport->requests)->toHaveCount(1);
+        ->and($request['batch'])->toHaveKeys(['sent_at', 'stream', 'seq', 'events'])
+        ->and($event)->toMatchArray([
+            'type' => 'track',
+            'event' => 'report_exported',
+            'properties' => ['format' => 'csv'],
+            'timestamp' => '2026-11-08T09:00:00.000Z',
+            'consent' => 'not_applicable',
+            'user_id' => 'user_42',
+            'context' => ['library' => ['name' => 'mirafive/sdk-php', 'version' => Mira::VERSION]],
+        ])
+        ->and($event['event_id'])->toMatch('/^[0-9a-f-]{36}$/')
+        ->and($event)->not->toHaveKey('anonymous_id')
+        ->and($this->errors)->toBe([]);
 });
 
-it('flushes on its own once flushAt events are buffered', function (): void {
-    $transport = transport(accepted(3));
-    $mira = client($transport, flushAt: 3);
+it('encodes empty properties and traits as objects', function (): void {
+    $this->mira->track('heartbeat');
+    $this->mira->identify('user_42');
+    $this->mira->group('acme');
+    $this->mira->flush();
 
-    $mira->track('a');
-    $mira->track('b');
+    $body = $this->transport->requests()[0]['body'];
 
-    expect($transport->requests)->toBeEmpty();
-
-    $mira->track('c');
-
-    expect($transport->body(0)['events'])->toHaveCount(3);
+    expect($body)->toContain('"properties":{}')
+        ->and(substr_count($body, '"traits":{}'))->toBe(2)
+        ->and($body)->not->toContain('[]');
 });
 
-it('flushes when the client is destroyed', function (): void {
-    $transport = transport(accepted());
-    $mira = client($transport);
-    $mira->track('signup');
+it('reports invalid input instead of throwing, and keeps going', function (): void {
+    $this->mira->track('');
+    $this->mira->track('$pageview');
+    $this->mira->identify(' ');
+    $this->mira->group('');
+    $this->mira->track('ok', eventId: 'not-a-uuid');
+    $this->mira->track('ok', timestamp: 'not a time');
+    $this->mira->track('ok', consent: ['analytics' => 'maybe']);
+    $this->mira->track('ok', consent: 'yes');
+    $this->mira->track('fine');
+    $this->mira->flush();
 
-    unset($mira);
-
-    expect($transport->requests)->toHaveCount(1);
+    expect(messages($this->errors))->toBe([
+        'track: event is required',
+        'track: "$pageview" is reserved (names starting with $)',
+        'identify: userId is required',
+        'group: groupId is required',
+        'ok: eventId must be a UUID (see Mira::eventIdFor())',
+        'Invalid timestamp: not a time',
+        'consent: "maybe" is not granted, denied or unknown',
+        "consent must be 'not_applicable', a Consent, or ['analytics' => …, 'marketing' => …]",
+    ])->and(array_column(sent($this->transport), 'event'))->toBe(['fine']);
 });
 
-it('sends immediately and returns the receipt', function (): void {
-    $transport = transport(answer(202, ['batch' => '274e05f0-4dd7-8db9-a563-87ea5c891487', 'accepted' => 1, 'dropped' => 0]));
+it('stamps consent as the wire expects', function (mixed $consent, mixed $wire): void {
+    $this->mira->track('step', anonymousId: 'a', consent: $consent);
+    $this->mira->flush();
 
-    $receipt = client($transport)->send([['name' => 'order completed', 'userId' => 'u_42', 'time' => 1727430199000]], idempotencyKey: 'order-981');
+    expect(sent($this->transport)[0]['consent'])->toBe($wire);
+})->with([
+    'default' => [null, 'not_applicable'],
+    'not applicable' => ['not_applicable', 'not_applicable'],
+    'booleans' => [['analytics' => true, 'marketing' => false], ['analytics' => 'granted', 'marketing' => 'denied']],
+    'analytics alone' => [['analytics' => true], ['analytics' => 'granted', 'marketing' => 'unknown']],
+    'states' => [['analytics' => 'unknown', 'marketing' => 'denied'], ['analytics' => 'unknown', 'marketing' => 'denied']],
+    'granted' => [Consent::granted(), ['analytics' => 'granted', 'marketing' => 'granted']],
+    'analytics only' => [Consent::analyticsOnly(), ['analytics' => 'granted', 'marketing' => 'denied']],
+    'denied' => [Consent::denied(), ['analytics' => 'denied', 'marketing' => 'denied']],
+]);
 
-    expect($receipt)->toEqual(new Receipt('274e05f0-4dd7-8db9-a563-87ea5c891487', 1, 0))
-        ->and($transport->body(0)['batch'])->toBe(BatchId::fromIdempotencyKey('order-981'))
-        ->and($transport->body(0)['events'][0]['time'])->toBe(1727430199000);
+it('takes timestamps as dates, epoch milliseconds and strings', function (): void {
+    $this->mira->track('a', timestamp: new DateTimeImmutable('2026-11-08T08:00:00.123+00:00'));
+    $this->mira->track('b', timestamp: 1_794_124_980_007);
+    $this->mira->track('c', timestamp: -1);
+    $this->mira->track('d', timestamp: '2020-01-01');
+    $this->mira->flush();
+
+    expect(array_column(sent($this->transport), 'timestamp'))->toBe([
+        '2026-11-08T08:00:00.123Z',
+        '2026-11-08T08:03:00.007Z',
+        '1969-12-31T23:59:59.999Z',
+        '2020-01-01T00:00:00.000Z',
+    ]);
 });
 
-it('passes a dropped batch through as a final receipt', function (): void {
-    $transport = transport(answer(202, ['batch' => 'b', 'accepted' => 0, 'dropped' => 1, 'reason' => 'install_check']));
+it('lowercases a given event id and keeps it', function (): void {
+    $id = strtoupper(Mira::eventIdFor('order:1'));
+    $this->mira->track('a', eventId: $id);
+    $this->mira->flush();
 
-    expect(client($transport)->send([['name' => '$install_check']]))->toEqual(new Receipt('b', 0, 1, 'install_check'))
-        ->and($transport->requests)->toHaveCount(1);
+    expect(sent($this->transport)[0]['event_id'])->toBe(strtolower($id));
 });
 
-it('refuses batches outside 1–1000 events', function (int $count): void {
-    client(transport())->send(array_fill(0, $count, ['name' => 'a']));
-})->with([0, 1001])->throws(InvalidArgumentException::class);
+it('keeps known context fields and drops only an invalid location', function (): void {
+    $context = [
+        'ip' => '203.0.113.7',
+        'userAgent' => 'UA',
+        'page' => ['url' => 'https://shop.example/', 'referrer' => '', 'title' => 'Shop', 'other' => 'x'],
+        'app' => ['name' => 'App', 'version' => '1.0'],
+        'locale' => 'de-DE',
+        'timezone' => 'Europe/Berlin',
+        'unknown' => 'ignored',
+    ];
 
-it('retries 408, 429, 5xx and network errors with the byte-identical body', function (): void {
-    $transport = transport(answer(503, ['code' => 'sink_unavailable', 'detail' => 'down']), new TransportException('reset'), accepted());
-    $slept = [];
+    $this->mira->track('near_me', context: [...$context, 'location' => ['latitude' => 52.52, 'longitude' => 13.4]]);
+    $this->mira->track('far_away', context: ['location' => ['latitude' => 91, 'longitude' => 0]]);
+    $this->mira->flush();
 
-    client($transport, $slept)->send([['name' => 'a']]);
+    [$near, $far] = sent($this->transport);
 
-    expect($transport->requests)->toHaveCount(3)
-        ->and($transport->requests[1]['body'])->toBe($transport->requests[0]['body'])
-        ->and($transport->requests[2]['body'])->toBe($transport->requests[0]['body'])
-        ->and($slept)->toHaveCount(2)
-        ->and($slept[0])->toBeLessThanOrEqual(100)
-        ->and($slept[1])->toBeLessThanOrEqual(200);
+    expect($near['context'])->toBe([
+        'library' => ['name' => 'mirafive/sdk-php', 'version' => Mira::VERSION],
+        'ip' => '203.0.113.7',
+        'user_agent' => 'UA',
+        'locale' => 'de-DE',
+        'timezone' => 'Europe/Berlin',
+        'page' => ['url' => 'https://shop.example/', 'title' => 'Shop'],
+        'app' => ['name' => 'App', 'version' => '1.0'],
+        'location' => ['latitude' => 52.52, 'longitude' => 13.4],
+    ])->and($far['context'])->not->toHaveKey('location')
+        ->and(messages($this->errors))->toBe(['far_away: location dropped (latitude -90..90, longitude -180..180)']);
 });
 
-it('gives up after maxRetries and throws a retryable MiraError', function (): void {
-    $transport = transport(answer(500), answer(502), answer(504));
+it('sends identify with known external ids only', function (): void {
+    $this->mira->identify('user_42', traits: ['email' => 'ada@example.com', 'plan' => ['name' => 'pro']], externalIds: [
+        'stripe_customer' => 'cus_123',
+        'shopify_customer' => '',
+        'revenuecat_app_user' => str_repeat('x', 201),
+        'paypal' => 'P-1',
+    ]);
+    $this->mira->flush();
 
-    try {
-        client($transport)->send([['name' => 'a']]);
-        $this->fail('send() did not throw');
-    } catch (MiraError $error) {
-        expect($error->errorCode)->toBe('unexpected')
-            ->and($error->status)->toBe(504)
-            ->and($error->getCode())->toBe(504)
-            ->and($error->retryable)->toBeTrue();
-    }
+    $event = sent($this->transport)[0];
 
-    expect($transport->requests)->toHaveCount(3);
+    expect($event)->toMatchArray([
+        'type' => 'identify',
+        'event' => '$identify',
+        'user_id' => 'user_42',
+        'traits' => ['email' => 'ada@example.com', 'plan.name' => 'pro'],
+        'external_ids' => ['stripe_customer' => 'cus_123'],
+    ])->and(messages($this->errors)[0])->toStartWith('identify: unknown external id type "paypal" dropped');
 });
 
-it('does not retry a refusal and carries the validation errors', function (): void {
-    $transport = transport(answer(400, [
-        'code' => 'validation_failed',
-        'detail' => 'the batch is invalid',
-        'errors' => [['path' => 'events.0.name', 'message' => 'too long']],
-    ]));
+it('leaves external_ids out when none is usable', function (): void {
+    $this->mira->identify('user_42', externalIds: ['stripe_customer' => '  ']);
+    $this->mira->flush();
 
-    try {
-        client($transport)->send([['name' => 'a']]);
-        $this->fail('send() did not throw');
-    } catch (MiraError $error) {
-        expect($error->errorCode)->toBe('validation_failed')
-            ->and($error->retryable)->toBeFalse()
-            ->and($error->errors)->toBe([['path' => 'events.0.name', 'message' => 'too long']]);
-    }
-
-    expect($transport->requests)->toHaveCount(1);
+    expect(sent($this->transport)[0])->not->toHaveKey('external_ids');
 });
 
-it('waits for Retry-After before retrying a rate limit', function (): void {
-    $transport = transport(answer(429, ['code' => 'rate_limited', 'detail' => 'slow down'], ['Retry-After' => '2']), accepted());
-    $slept = [];
+it('sends group events', function (): void {
+    $this->mira->group('acme', userId: 'user_42', traits: ['name' => 'Acme GmbH', 'seats' => 12]);
+    $this->mira->flush();
 
-    client($transport, $slept)->send([['name' => 'a']]);
-
-    expect($slept)->toBe([2000]);
+    expect(sent($this->transport)[0])->toMatchArray([
+        'type' => 'group',
+        'event' => '$group',
+        'group_id' => 'acme',
+        'user_id' => 'user_42',
+        'traits' => ['name' => 'Acme GmbH', 'seats' => 12],
+    ]);
 });
 
-it('stops when Retry-After asks for longer than a request can wait', function (): void {
-    $transport = transport(answer(429, ['code' => 'rate_limited', 'detail' => 'slow down'], ['Retry-After' => '60']));
-    $slept = [];
+it('sends revenue with every ledger field', function (): void {
+    $this->mira->revenue(
+        amount: 999,
+        currency: 'eur',
+        userId: 'user_42',
+        entryId: 'revenuecat:txn_1',
+        entryKind: 'subscription_payment',
+        fee: 150,
+        tax: 160.0,
+        product: 'premium_monthly',
+        subscription: ['id' => 'sub_42', 'interval' => 'month', 'intervalCount' => 3, 'periodStart' => '2026-11-08T00:00:00Z', 'periodEnd' => 1_802_044_800_000],
+        properties: ['coupon' => 'X'],
+    );
+    $this->mira->revenue(amount: -999, currency: 'EUR', entryKind: 'refund', entryId: 'revenuecat:txn_1:refund', refundOf: 'revenuecat:txn_1');
+    $this->mira->flush();
 
-    try {
-        client($transport, $slept)->send([['name' => 'a']]);
-        $this->fail('send() did not throw');
-    } catch (MiraError $error) {
-        expect($error->errorCode)->toBe('rate_limited')
-            ->and($error->retryAfterMs)->toBe(60_000);
-    }
+    [$payment, $refund] = sent($this->transport);
 
-    expect($slept)->toBe([])->and($transport->requests)->toHaveCount(1);
+    expect($payment)->toMatchArray([
+        'type' => 'track',
+        'event' => '$revenue',
+        'properties' => ['coupon' => 'X'],
+        'revenue' => [
+            'amount' => 999,
+            'currency' => 'EUR',
+            'entry_id' => 'revenuecat:txn_1',
+            'kind' => 'subscription_payment',
+            'fee' => 150,
+            'tax' => 160,
+            'product' => 'premium_monthly',
+            'subscription' => [
+                'id' => 'sub_42',
+                'interval' => 'month',
+                'interval_count' => 3,
+                'period_start' => '2026-11-08T00:00:00.000Z',
+                'period_end' => '2027-02-08T00:00:00.000Z',
+            ],
+        ],
+    ])->and($refund['revenue'])->toBe([
+        'amount' => -999,
+        'currency' => 'EUR',
+        'entry_id' => 'revenuecat:txn_1:refund',
+        'kind' => 'refund',
+        'refund_of' => 'revenuecat:txn_1',
+    ])->and($this->errors)->toBe([]);
 });
 
-it('reports timeouts as a timeout code', function (): void {
-    $transport = transport(new TransportException('slow', timedOut: true));
+it('refuses revenue that is not in integer minor units or misses a field', function (): void {
+    $this->mira->revenue(amount: 19.99, currency: 'EUR');
+    $this->mira->revenue(amount: 1999, currency: 'euro');
+    $this->mira->revenue(amount: 1999, currency: 'EUR', fee: 1.5);
+    $this->mira->revenue(amount: 1999, currency: 'EUR', entryKind: 'payout');
+    $this->mira->revenue(amount: 1999, currency: 'EUR', subscription: ['interval' => 'month']);
+    $this->mira->revenue(amount: 1999, currency: 'EUR', subscription: ['id' => 's', 'interval' => 'fortnight']);
+    $this->mira->revenue(amount: 1999, currency: 'EUR', subscription: ['id' => 's', 'intervalCount' => 0]);
+    $this->mira->revenue(amount: NAN, currency: 'EUR');
+    $this->mira->flush();
 
-    expect(fn () => client($transport, maxRetries: 0)->send([['name' => 'a']]))
-        ->toThrow(fn (MiraError $error) => expect($error->errorCode)->toBe('timeout'));
+    expect(messages($this->errors))->toBe([
+        'revenue: amount must be an integer in minor units (1999 for 19.99)',
+        'revenue: currency must be an ISO 4217 code',
+        'revenue: fee must be an integer in minor units (1999 for 19.99)',
+        'revenue: entryKind must be one of charge, subscription_payment, refund, dispute, dispute_won',
+        'revenue: subscription.id is required',
+        'revenue: subscription.interval must be one of day, week, month, year',
+        'revenue: subscription.intervalCount must be an integer from 1 to 36',
+        'revenue: amount must be an integer in minor units (1999 for 19.99)',
+    ])->and($this->transport->requests())->toBe([]);
 });
 
-it('never throws from flush; failures go to onError', function (): void {
-    $transport = transport(answer(401, ['code' => 'unauthorized', 'detail' => 'unknown key']));
+it('sends a touchpoint with its fields over the properties', function (): void {
+    $this->mira->touchpoint(
+        kind: 'offline',
+        userId: 'user_42',
+        channel: 'paid_social',
+        source: 'instagram',
+        medium: 'paid',
+        campaign: 'autumn',
+        content: 'carousel',
+        campaignId: 'c1',
+        adGroupId: 'g1',
+        adId: 'a1',
+        code: 'CODE',
+        answer: '',
+        externalRef: 'hubspot:1',
+        properties: ['booth' => 'B12', 'kind' => 'overwritten'],
+    );
+    $this->mira->flush();
+
+    expect(sent($this->transport)[0])->toMatchArray([
+        'type' => 'track',
+        'event' => '$touchpoint',
+        'properties' => [
+            'booth' => 'B12',
+            'kind' => 'offline',
+            'channel' => 'paid_social',
+            'source' => 'instagram',
+            'medium' => 'paid',
+            'campaign' => 'autumn',
+            'content' => 'carousel',
+            'campaign_id' => 'c1',
+            'ad_group_id' => 'g1',
+            'ad_id' => 'a1',
+            'code' => 'CODE',
+            'external_ref' => 'hubspot:1',
+        ],
+    ]);
+});
+
+it('refuses a touchpoint without kind, channel or source, or person', function (): void {
+    $this->mira->touchpoint('billboard', userId: 'u', source: 's');
+    $this->mira->touchpoint('survey', userId: 'u', channel: 'tv');
+    $this->mira->touchpoint('survey', userId: 'u', source: '  ');
+    $this->mira->touchpoint('survey', source: 'podcast');
+    $this->mira->touchpoint('survey', anonymousId: 'a', source: 'podcast');
+    $this->mira->flush();
+
+    expect(messages($this->errors))->toBe([
+        'touchpoint: kind must be one of survey, offline, code, custom',
+        'touchpoint: channel must be one of paid_search, paid_social, paid_other, organic_search, organic_social, ai_assistant, email, affiliate, display, video, qr, app_store, referral, direct',
+        'touchpoint: a channel or a source is required',
+        'touchpoint: a userId or an anonymousId is required',
+    ])->and(sent($this->transport))->toHaveCount(1);
+});
+
+it('fills in a scope\'s defaults, and the call wins', function (): void {
+    $request = $this->mira->with(userId: 'user_42', consent: Consent::analyticsOnly(), context: ['ip' => '203.0.113.7', 'locale' => 'de-DE']);
+    $request->track('a');
+    $request->track('b', userId: 'user_7', consent: 'not_applicable', context: ['locale' => 'en-US']);
+    $request->touchpoint('survey', source: 'podcast');
+    $request->with(anonymousId: 'anon_1')->track('c');
+    $this->mira->track('d');
+    $request->flush();
+
+    [$a, $b, $touchpoint, $c, $d] = sent($this->transport);
+
+    expect($a)->toMatchArray(['user_id' => 'user_42', 'consent' => ['analytics' => 'granted', 'marketing' => 'denied']])
+        ->and($a['context'])->toMatchArray(['ip' => '203.0.113.7', 'locale' => 'de-DE'])
+        ->and($b)->toMatchArray(['user_id' => 'user_7', 'consent' => 'not_applicable'])
+        ->and($b['context'])->toMatchArray(['ip' => '203.0.113.7', 'locale' => 'en-US'])
+        ->and($touchpoint['user_id'])->toBe('user_42')
+        ->and($c)->toMatchArray(['user_id' => 'user_42', 'anonymous_id' => 'anon_1'])
+        ->and($d)->not->toHaveKey('user_id')
+        ->and($this->transport->requests())->toHaveCount(1);
+});
+
+it('refuses events after shutdown', function (): void {
+    $this->mira->track('before');
+    $this->mira->shutdown();
+    $this->mira->track('after');
+
+    expect(array_column(sent($this->transport), 'event'))->toBe(['before'])
+        ->and(messages($this->errors))->toBe(['after: the client was shut down']);
+});
+
+it('reports a missing key and sends nothing', function (): void {
     $errors = [];
-    $slept = [];
-    $mira = client($transport, $slept, $errors);
-
+    $mira = client($this->transport, $errors, ['secretKey' => '']);
     $mira->track('a');
     $mira->flush();
 
-    expect($errors)->toHaveCount(1)
-        ->and($errors[0]->errorCode)->toBe('unauthorized');
-});
-
-it('halves a batch the collector finds too large', function (): void {
-    $transport = transport(answer(413, ['code' => 'payload_too_large', 'detail' => 'too large']), accepted(2), accepted(2));
-    $mira = client($transport);
-
-    foreach (range(1, 4) as $number) {
-        $mira->track("event {$number}");
-    }
-
-    $mira->flush();
-
-    expect($transport->requests)->toHaveCount(3)
-        ->and($transport->body(1)['events'])->toHaveCount(2)
-        ->and($transport->body(2)['events'])->toHaveCount(2)
-        ->and($transport->body(1)['batch'])->not->toBe($transport->body(2)['batch']);
-});
-
-it('splits a buffer that would exceed 1 MiB before sending it', function (): void {
-    $transport = transport(accepted(), accepted(), accepted(), accepted(), accepted(), accepted(), accepted(), accepted());
-    $mira = client($transport);
-    $text = str_repeat('x', 30_000);
-
-    foreach (range(1, 40) as $number) {
-        $mira->track('big', properties: ['text' => $text]);
-    }
-
-    $mira->flush();
-
-    expect(count($transport->requests))->toBeGreaterThan(1);
-
-    foreach (array_keys($transport->requests) as $index) {
-        expect(strlen((string) $transport->requests[$index]['body']))->toBeLessThanOrEqual(1_048_576);
-    }
-});
-
-it('reports a missing key without a request', function (): void {
-    $transport = transport();
-    $errors = [];
-
-    $mira = new Mira(key: false, transport: $transport, onError: function (MiraError $error) use (&$errors): void {
-        $errors[] = $error;
-    });
-    $mira->track('a');
-    $mira->flush();
-
-    expect($transport->requests)->toBeEmpty()
-        ->and($errors[0]->errorCode)->toBe('unauthorized');
+    expect($mira->sends)->toBeFalse()
+        ->and(messages($errors))->toBe(['no secret key: pass secretKey or set MIRAFIVE_SECRET_KEY; events will be dropped'])
+        ->and($this->transport->requests())->toBe([]);
 });
 
 it('reads the key and host from the environment', function (): void {
-    $_ENV['MIRAFIVE_SECRET_KEY'] = 'mf_ab12cd34_fromEnv';
-    $_ENV['MIRAFIVE_HOST'] = 'https://collector.example.test';
+    $_ENV['MIRAFIVE_SECRET_KEY'] = 'mira_sk_env';
+    $_ENV['MIRAFIVE_HOST'] = 'http://localhost:4500/';
 
     try {
-        $transport = transport(accepted());
-        (new Mira(transport: $transport))->send([['name' => 'a']]);
+        $mira = new Mira(transport: $this->transport, flushOnShutdown: false);
+        $mira->track('a');
+        $mira->flush();
     } finally {
         unset($_ENV['MIRAFIVE_SECRET_KEY'], $_ENV['MIRAFIVE_HOST']);
     }
 
-    expect($transport->requests[0]['url'])->toBe('https://collector.example.test/v1/batch')
-        ->and($transport->requests[0]['headers']['Authorization'])->toBe('Bearer mf_ab12cd34_fromEnv');
+    expect($mira->host)->toBe('http://localhost:4500')
+        ->and($this->transport->requests()[0]['url'])->toBe('http://localhost:4500/v1/batch')
+        ->and($this->transport->requests()[0]['headers']['Authorization'])->toBe('Bearer mira_sk_env');
 });
 
-it('refuses a host without a scheme', function (): void {
-    new Mira(key: KEY, host: 'collect.mirafive.io');
+it('defaults to the MIRA FIVE ingest', function (): void {
+    expect(client($this->transport, $this->errors, ['host' => null])->host)->toBe('https://events.mirafive.io');
+});
+
+it('refuses a host that is not an origin', function (): void {
+    new Mira(secretKey: 'mira_sk_x', host: 'events.mirafive.io');
 })->throws(InvalidArgumentException::class);
 
-it('refuses identifiers in consentless mode', function (Closure $call): void {
-    $call(client(transport(), mode: Mode::Consentless));
-})->with([
-    'userId' => [fn (Mira $mira) => $mira->track('a', userId: 'u_42')],
-    'anonymousId' => [fn (Mira $mira) => $mira->track('a', anonymousId: 'a1')],
-    'sessionId' => [fn (Mira $mira) => $mira->track('a', sessionId: '5f0c1c8e-3e0e-4a57-9d59-3f7f2a6d1e44')],
-    'identify' => [fn (Mira $mira) => $mira->identify('u_42')],
-    'send' => [fn (Mira $mira) => $mira->send([['name' => 'a', 'userId' => 'u_42']])],
-])->throws(InvalidArgumentException::class, 'consentless');
-
-it('sends consentless batches without identifiers', function (): void {
-    $transport = transport(accepted());
-
-    client($transport, mode: Mode::Consentless)->send([['name' => 'invoice paid', 'properties' => ['revenue' => 99, 'currency' => 'EUR']]]);
-
-    expect($transport->body(0)['mode'])->toBe('consentless')
-        ->and(array_keys($transport->body(0)['events'][0]))->toBe(['name', 'time', 'properties']);
-});
-
-it('sends payment_id next to revenue and currency', function (): void {
-    $transport = transport(accepted());
-    $properties = ['revenue' => 49.9, 'currency' => 'EUR', 'payment_id' => 'pi_3Q1b2c3d4e5f6g7h'];
-
-    client($transport)->send([['name' => 'order completed', 'userId' => 'u_42', 'properties' => $properties]]);
-
-    expect($transport->body(0)['events'][0]['properties'])->toBe($properties);
-});
-
-it('refuses events the collector would refuse', function (array $event): void {
-    client(transport())->send([$event]);
-})->with([
-    'no name' => [['properties' => []]],
-    'blank name' => [['name' => '']],
-    'surrounding whitespace' => [['name' => ' signup']],
-    'long name' => [['name' => str_repeat('a', 129)]],
-    'unknown reserved name' => [['name' => '$signup']],
-    'blank user id' => [['name' => 'a', 'userId' => '  ']],
-    'long user id' => [['name' => 'a', 'userId' => str_repeat('u', 257)]],
-    'session id not a uuid' => [['name' => 'a', 'sessionId' => 'abc']],
-    'properties as a list' => [['name' => 'a', 'properties' => ['a', 'b']]],
-    'too many values' => [['name' => 'a', 'properties' => array_fill_keys(array_map(fn (int $i): string => "k{$i}", range(1, 65)), 1)]],
-    'too deep' => [['name' => 'a', 'properties' => ['a' => ['b' => ['c' => ['d' => ['e' => ['f' => 1]]]]]]]],
-    'too large' => [['name' => 'a', 'properties' => ['text' => str_repeat('x', 33_000)]]],
-    'not encodable' => [['name' => 'a', 'properties' => ['n' => NAN]]],
-    'unknown field' => [['name' => 'a', 'user_id' => 'u_42']],
-    'bad time' => [['name' => 'a', 'time' => '2026-09-27']],
-])->throws(InvalidArgumentException::class);
-
-it('clamps page fields to the protocol lengths', function (): void {
-    $transport = transport(accepted());
-
-    client($transport)->send([['name' => 'a', 'page' => ['title' => str_repeat('🙂', 300), 'url' => 'https://shop.example/']]]);
-
-    $page = $transport->body(0)['events'][0]['page'];
-
-    expect($page['url'])->toBe('https://shop.example/')
-        ->and(mb_strlen($page['title']))->toBe(256);
-});
-
-it('hands buffered batches off instead of sending them, and a worker delivers them unchanged', function (): void {
-    $handedOff = [];
-    $transport = transport();
-    $mira = new Mira(key: KEY, transport: $transport, flushAt: 2, handOff: function (string $body, string $batchId) use (&$handedOff): void {
-        $handedOff[] = [$body, $batchId];
-    });
-
-    $mira->track('a');
-    $mira->track('b');
-    $mira->track('c');
-    $mira->flush();
-
-    expect($transport->requests)->toBeEmpty()
-        ->and($handedOff)->toHaveCount(2)
-        ->and(json_decode($handedOff[0][0], true)['batch'])->toBe($handedOff[0][1])
-        ->and(json_decode($handedOff[0][0], true)['events'])->toHaveCount(2);
-
-    $worker = client($workerTransport = transport(answer(503), accepted(2)));
-    $receipt = $worker->deliverPrepared($handedOff[0][0]);
-
-    expect($receipt->accepted)->toBe(2)
-        ->and($workerTransport->requests[0]['body'])->toBe($handedOff[0][0])
-        ->and($workerTransport->requests[1]['body'])->toBe($handedOff[0][0])
-        ->and($workerTransport->requests[0]['headers']['Authorization'])->toBe('Bearer '.KEY);
-});
-
-it('still sends send() batches immediately when a hand-off is set', function (): void {
-    $transport = transport(accepted());
-    $mira = new Mira(key: KEY, transport: $transport, handOff: fn (string $body, string $batchId) => throw new LogicException('not for send()'));
-
-    expect($mira->send([['name' => 'a']])->accepted)->toBe(1)
-        ->and($transport->requests)->toHaveCount(1);
-});
-
-it('reports a failing hand-off instead of throwing from flush', function (): void {
+it('refuses a public key clearly and sends nothing', function (): void {
     $errors = [];
-    $mira = new Mira(
-        key: KEY,
-        transport: transport(),
-        onError: function (MiraError $error) use (&$errors): void {
-            $errors[] = $error;
-        },
-        handOff: fn (string $body, string $batchId) => throw new RuntimeException('queue down'),
-    );
-
+    $mira = client($this->transport, $errors, ['secretKey' => 'mira_pk_live_123']);
     $mira->track('a');
     $mira->flush();
 
-    expect($errors[0]->errorCode)->toBe('unexpected')
-        ->and($errors[0]->getMessage())->toContain('queue down');
+    expect(messages($errors)[0])->toStartWith('this is a public key (mira_pk_…): server code needs the project\'s secret key (mira_sk_…)')
+        ->and($this->transport->requests())->toHaveCount(0);
 });
 
-it('refuses to deliver something that is not an encoded batch, and throws refusals', function (): void {
-    $transport = transport(answer(401, ['code' => 'unauthorized', 'detail' => 'unknown key']));
-    $mira = client($transport);
-
-    expect(fn () => $mira->deliverPrepared('{"events":[]}'))
-        ->toThrow(fn (MiraError $error) => expect($error->errorCode)->toBe('invalid_event'))
-        ->and($transport->requests)->toBeEmpty()
-        ->and(fn () => $mira->deliverPrepared('{"v":1,"batch":"b","mode":"full","events":[{"name":"a"}]}'))
-        ->toThrow(fn (MiraError $error) => expect($error->errorCode)->toBe('unauthorized'));
-});
-
-it('registers the shutdown flush only when asked to', function (bool $flushOnShutdown, string $expected): void {
-    $script = sprintf(<<<'PHP'
-        require %s;
-        $GLOBALS['mira'] = new MiraFive\Mira(key: 'k', flushOnShutdown: %s, handOff: function (): void { echo "flushed\n"; });
-        $GLOBALS['mira']->track('a');
-        register_shutdown_function(function (): void { echo "shutdown\n"; });
-        PHP, var_export(dirname(__DIR__, 2).'/vendor/autoload.php', true), var_export($flushOnShutdown, true));
-
-    expect((string) shell_exec(escapeshellarg(PHP_BINARY).' -r '.escapeshellarg($script)))->toBe($expected);
-})->with([
-    'registered' => [true, "flushed\nshutdown\n"],
-    'left to the framework (the destructor still flushes)' => [false, "shutdown\nflushed\n"],
-]);
-
-it('sends nothing and needs no key when disabled, but still checks input', function (): void {
-    $transport = transport();
-    $mira = new Mira(key: false, transport: $transport, enabled: false);
-
-    $mira->track('a', userId: 'u_42');
-    $mira->identify('u_42');
-    $mira->flush();
-    $receipt = $mira->send([['name' => 'a'], ['name' => 'b']], idempotencyKey: 'order-981');
-    $prepared = $mira->deliverPrepared('{"v":1,"batch":"b","mode":"full","events":[{"name":"a"}]}');
-
-    expect($transport->requests)->toBeEmpty()
-        ->and($receipt)->toEqual(new Receipt(BatchId::fromIdempotencyKey('order-981'), 2, 0))
-        ->and($prepared)->toEqual(new Receipt('b', 1, 0))
-        ->and(fn () => $mira->track(' padded'))->toThrow(InvalidArgumentException::class)
-        ->and(fn () => $mira->send([['name' => '$nope']]))->toThrow(InvalidArgumentException::class);
-});
-
-it('names the default host', function (): void {
-    $transport = transport(accepted());
-    (new Mira(key: KEY, transport: $transport))->send([['name' => 'a']]);
-
-    expect(Mira::DEFAULT_HOST)->toBe('https://collect.mirafive.io')
-        ->and($transport->requests[0]['url'])->toBe(Mira::DEFAULT_HOST.'/v1/batch');
-});
-
-it('measures the properties limit in UTF-8 bytes, as the collector does', function (): void {
-    client(transport())->track('a', properties: ['text' => str_repeat('ü', 16_400)]);
-})->throws(InvalidArgumentException::class, '32768 bytes');
-
-it('does not count unicode and slashes escaped', function (): void {
-    $transport = transport(accepted());
-
-    client($transport)->send([['name' => 'a', 'properties' => ['text' => str_repeat('ü/', 8_000)]]]);
-
-    expect($transport->requests)->toHaveCount(1);
-});
-
-it('accepts properties the collector measures below the limit', function (): void {
-    $transport = transport(accepted());
-
-    client($transport)->send([['name' => 'a', 'properties' => ['text' => str_repeat('x', 32_700)]]]);
-
-    expect($transport->requests)->toHaveCount(1);
-});
-
-it('drops the events a buffered batch was refused for and resends the rest under a derived id', function (): void {
-    $refusal = answer(400, ['code' => 'validation_failed', 'detail' => 'invalid', 'errors' => [
-        ['path' => 'events.1.properties', 'message' => 'too deep'],
-        ['path' => 'events.3', 'message' => 'invalid'],
-    ]]);
-    $transport = transport($refusal, accepted(2));
+it('checks input but sends nothing when disabled', function (): void {
     $errors = [];
-    $slept = [];
-    $mira = client($transport, $slept, $errors);
-
-    foreach (['a', 'b', 'c', 'd'] as $name) {
-        $mira->track($name, properties: ['nested' => new stdClass]);
-    }
-
-    $mira->flush();
-    $first = $transport->body(0);
-    $second = $transport->body(1);
-
-    expect(array_column($second['events'], 'name'))->toBe(['a', 'c'])
-        ->and($second['batch'])->toBe(BatchId::fromIdempotencyKey($first['batch'].'#without:1,3'))
-        ->and($transport->requests[1]['body'])->toContain('"nested":{}')
-        ->and($errors)->toHaveCount(1)
-        ->and($errors[0]->errorCode)->toBe('validation_failed')
-        ->and($errors[0]->getMessage())->toContain('Dropped 2 of 4 events');
-});
-
-it('recovers a prepared batch the same way, deterministically', function (): void {
-    $body = '{"v":1,"batch":"274e05f0-4dd7-8db9-a563-87ea5c891487","mode":"full","events":[{"name":"a"},{"name":"b"}]}';
-    $refusal = fn () => answer(400, ['code' => 'validation_failed', 'detail' => 'x', 'errors' => [['path' => 'events.0.name', 'message' => 'bad']]]);
-    $first = transport($refusal(), answer(202, ['batch' => 'x', 'accepted' => 1, 'dropped' => 0]));
-    $second = transport($refusal(), answer(202, ['batch' => 'x', 'accepted' => 1, 'dropped' => 0]));
-    $errors = [];
-    $slept = [];
-
-    expect(client($first, $slept, $errors)->deliverPrepared($body)->accepted)->toBe(1);
-    client($second, $slept, $errors)->deliverPrepared($body);
-
-    expect($first->requests[1]['body'])->toBe($second->requests[1]['body'])
-        ->and($first->body(1)['events'])->toBe([['name' => 'b']]);
-});
-
-it('drops the whole batch when the errors name no event', function (): void {
-    $transport = transport(answer(400, ['code' => 'validation_failed', 'detail' => 'x', 'errors' => [['path' => 'mode', 'message' => 'bad']]]));
-    $errors = [];
-    $slept = [];
-    $mira = client($transport, $slept, $errors);
-
-    $mira->track('a');
+    $mira = client($this->transport, $errors, ['enabled' => false, 'secretKey' => '']);
+    $mira->track('');
+    $mira->track('ok');
     $mira->flush();
 
-    expect($transport->requests)->toHaveCount(1)
-        ->and($errors[0]->errorCode)->toBe('validation_failed')
-        ->and($errors[0]->errors)->toBe([['path' => 'mode', 'message' => 'bad']]);
+    expect($mira->sends)->toBeFalse()
+        ->and(messages($errors))->toBe(['track: event is required'])
+        ->and($this->transport->requests())->toBe([]);
 });
 
-it('keeps a flush within its deadline, counting the waits', function (): void {
-    $transport = transport(answer(503, [], ['Retry-After' => '2']), answer(503), accepted());
-    $errors = [];
-    $slept = [];
-    $mira = new Mira(key: KEY, transport: $transport, flushDeadlineMs: 2_500, maxRetries: 5, onError: function (MiraError $error) use (&$errors): void {
-        $errors[] = $error;
-    }, sleep: function (int $ms) use (&$slept): void {
-        $slept[] = $ms;
-    });
+it('survives an onError that throws', function (): void {
+    $mira = client($this->transport, $this->errors, ['onError' => static function (MiraError $error): void {
+        throw new RuntimeException('handler broke');
+    }]);
 
-    $mira->track('a');
+    $mira->track('');
+    $mira->track('ok');
     $mira->flush();
 
-    expect($slept[0])->toBe(2000)
-        ->and($transport->requests[1]['timeoutMs'])->toBeLessThanOrEqual(500)
-        ->and($transport->requests[1]['connectTimeoutMs'])->toBeLessThanOrEqual(500)
-        ->and(count($transport->requests))->toBeLessThanOrEqual(3);
+    expect(sent($this->transport))->toHaveCount(1);
 });
 
-it('gives up a flush when the next wait would pass the deadline', function (): void {
-    $transport = transport(answer(503, [], ['Retry-After' => '2']));
-    $errors = [];
-    $slept = [];
-    $mira = new Mira(key: KEY, transport: $transport, flushDeadlineMs: 1_000, onError: function (MiraError $error) use (&$errors): void {
-        $errors[] = $error;
-    }, sleep: function (int $ms) use (&$slept): void {
-        $slept[] = $ms;
-    });
+it('falls back to a PSR-3 logger', function (): void {
+    $logger = new class extends AbstractLogger
+    {
+        /** @var list<string> */
+        public array $lines = [];
 
-    $mira->track('a');
-    $mira->flush();
-
-    expect($slept)->toBe([])
-        ->and($transport->requests)->toHaveCount(1)
-        ->and($errors[0]->status)->toBe(503);
-});
-
-it('skips the network for 30 s after a failed flush, shared through the cache, and says so once', function (): void {
-    $cache = new ArrayCache;
-    $errors = [];
-    $report = function (MiraError $error) use (&$errors): void {
-        $errors[] = $error;
+        public function log($level, string|Stringable $message, array $context = []): void
+        {
+            $this->lines[] = $level.' '.str_replace('{message}', (string) ($context['message'] ?? ''), (string) $message);
+        }
     };
-    $failing = transport(new TransportException('down'), new TransportException('down'), new TransportException('down'));
-    $first = new Mira(key: KEY, transport: $failing, cache: $cache, onError: $report, sleep: fn (int $ms) => null);
 
-    $first->track('a');
-    $first->flush();
-    $first->track('b');
-    $first->flush();
-    $first->track('c');
-    $first->flush();
+    $mira = new Mira(secretKey: 'mira_sk_test', host: 'https://ingest.test', logger: $logger, transport: $this->transport, flushOnShutdown: false);
+    $mira->track('');
 
-    $idle = transport();
-    $second = new Mira(key: KEY, transport: $idle, cache: $cache, onError: $report);
-    $second->track('d');
-    $second->flush();
-
-    expect($failing->requests)->toHaveCount(3)
-        ->and($idle->requests)->toBeEmpty()
-        ->and(array_map(fn (MiraError $error): string => $error->getMessage(), $errors))->toBe([
-            'down',
-            'Delivery failed recently; events are dropped for up to 30 s without trying the network.',
-            'Delivery failed recently; events are dropped for up to 30 s without trying the network.',
-        ]);
-
-    foreach (array_keys($cache->items) as $key) {
-        $cache->items[$key] = 0;
-    }
-
-    $recovered = new Mira(key: KEY, transport: $working = transport(accepted()), cache: $cache);
-    $recovered->track('e');
-    $recovered->flush();
-
-    expect($working->requests)->toHaveCount(1);
+    expect($logger->lines)->toBe(['warning [mirafive] track: event is required']);
 });
-
-it('does not open the breaker for a refusal', function (): void {
-    $transport = transport(answer(401, ['code' => 'unauthorized', 'detail' => 'x']), answer(401, ['code' => 'unauthorized', 'detail' => 'x']));
-    $mira = client($transport);
-
-    $mira->track('a');
-    $mira->flush();
-    $mira->track('b');
-    $mira->flush();
-
-    expect($transport->requests)->toHaveCount(2);
-});
-
-it('refuses an empty idempotency key', function (): void {
-    client(transport())->send([['name' => 'a']], idempotencyKey: '');
-})->throws(InvalidArgumentException::class, 'non-empty');

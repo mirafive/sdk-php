@@ -1,25 +1,59 @@
 # Changelog
 
-## Unreleased
+## 2.0.0 — 2026-11-08
 
-- Revenue events may carry `payment_id`, the payment provider's id of the payment (1–255 characters), next to `revenue` and `currency`. Nothing changes in the API: pass it in the properties. The README shows a Stripe example.
-- The default ingest host is `https://collect.mirafive.io`.
+A rewrite for the MIRA FIVE platform. The 1.x SDK spoke the retired v1 collector protocol; 2.0
+speaks the MIRA FIVE ingest and mirrors the Node SDK (`@mirafive/node`) method for method.
 
-- **Breaking:** feature flags and A/B experiments are removed: `MiraFive\Flags\*` (`MiraFlags`, `UserFlags`, `Evaluation`, `Reason`, `ErrorCode`), `Mira::flags()` and the `flagsRefreshSeconds` option. The flag fixtures are removed too.
+### New
 
-## 1.0.0 — 2026-09-27
+- `group()` for B2B accounts, `revenue()` for the revenue ledger (integer minor units, `entryId`,
+  `entryKind`, `fee`, `tax`, `refundOf`, `product`, subscriptions with their billing period), and
+  `touchpoint()` for survey answers, offline contacts and redeemed codes.
+- `identify()` takes `externalIds` (`stripe_customer`, `revenuecat_app_user`, `shopify_customer`,
+  `shopware_customer`), so connectors link their money to the user.
+- Per-event `consent` (default `not_applicable`) with the `Consent` helper, and `context` (`ip`,
+  `userAgent`, `page`, `app`, `locale`, `timezone`, `location`).
+- `Mira::eventIdFor()`: stable event ids from your own keys, byte-identical to the Node SDK.
+- `with()`: a client that fills in the user, consent and context for every event.
+- `checkConnection()` (asks `GET /v1/check`, sends no event), `ScriptTag::render()` for the browser SDK, and `Testing\MiraFake` with
+  assertions.
+- Every batch carries a `stream` and a `seq`, so MIRA can count lost batches.
 
-First release on the v1 ingest protocol.
+### Changed
 
-- `MiraFive\Mira`: buffered `track()` and `identify()`, immediate `send()` with idempotency keys (batch id per PROTOCOL §5), `flush()` on shutdown and destruction, batches of at most 1000 events and 1 MiB.
-- Retries for 408, 429, 5xx, timeouts and network errors with full-jitter backoff and a bounded `Retry-After`, resending the byte-identical body.
-- Consentless and full collection modes; identifiers in consentless mode are refused.
-- Transports: cURL, PHP streams, or any PSR-18 client.
-- `MiraFive\Flags\MiraFlags`: the server flag document with ETag revalidation and an optional PSR-16 cache, consent and opt-out per FLAGS.md §5.1, segment lookups, server-counted exposures and an escaped bootstrap block for the browser SDK.
-- The flag evaluator passes the shared MIRA FIVE fixtures.
-- Outage protection: a per-flush deadline (`flushDeadlineMs`, 3 s), a separate connect timeout (`connectTimeoutMs`, 1 s) and a 30 s circuit breaker after a failed flush or segment lookup, shared through the PSR-16 cache.
-- Events the collector refuses (`validation_failed`) are dropped and reported; the rest of the batch is resent under a derived batch id.
-- Exposure marks, segment memberships and the lookup back-off live in the PSR-16 cache when one is configured.
-- `MiraFlags::snapshot()` returns the document JSON, which `document:` accepts; an unreadable `document` is reported.
-- Property sizes are measured as the collector measures them; an empty idempotency key is refused.
-- Seams for framework integrations: `handOff` and `deliverPrepared()` for queued delivery, `flushOnShutdown`, `enabled: false` for local and test environments, `flagsRefreshSeconds`, and `Mira::DEFAULT_HOST`.
+- The default host is `https://events.mirafive.io`; batches go to `POST /v1/batch` with at most
+  100 events (was 1000) and about 500 kB.
+- Keys are `mira_sk_…` (secret) and `mira_pk_…` (public). A public key in place of the secret key is
+  refused with a clear message, and nothing is sent.
+- Event methods never throw any more: invalid input is reported to `onError` (or the logger) and the
+  event is dropped, like a delivery problem.
+- The wire format is snake_case (`event`, `timestamp`, `user_id`, `anonymous_id`, …) with ISO 8601
+  times; nested properties are flattened to dot keys up to depth 3.
+- `MiraError` has `status`, `eventIds`, `retryable`, `retryAfterMs` and `reason` (the ingest's error
+  code).
+- Hand-off payloads are `{stream, seq, events}`; `sent_at` is added when the worker sends.
+
+### Removed
+
+- Collection modes (`Mode`, `consentless` and `full`): consent is now stamped per event.
+- `send()`, idempotency keys, batch ids and `Receipt`: use `eventId` with `Mira::eventIdFor()` for
+  facts that may be reported twice, and `flush()` to send now.
+- `sessionId`: the MIRA server makes sessions.
+- `$install_check`: use `checkConnection()`.
+- The `payment_id` property: use `revenue(entryId: …)`.
+- `mf_` keys and `collect.mirafive.io`.
+
+### Migrating from 1.x
+
+| 1.x                                                                                                 | 2.0                                                                              |
+| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `new Mira(key: 'mf_…', mode: Mode::Full)`                                                           | `new Mira(secretKey: 'mira_sk_…')` (or `MIRAFIVE_SECRET_KEY`)                    |
+| `track('signup', userId: 'u1', properties: [...])`                                                  | `track(event: 'signup', userId: 'u1', properties: [...])`                        |
+| `track('order paid', properties: ['revenue' => 49.0, 'currency' => 'EUR', 'payment_id' => 'in_1'])` | `revenue(amount: 4900, currency: 'EUR', entryId: 'stripe:in_1')`                 |
+| `identify('u1', ['email' => …])`                                                                    | `identify(userId: 'u1', traits: ['email' => …])`                                 |
+| `time: 1727430000000`                                                                               | `timestamp: 1727430000000` (or a `DateTimeInterface` or ISO string)              |
+| `page: ['url' => …]`                                                                                | `context: ['page' => ['url' => …]]`                                              |
+| `send($events, idempotencyKey: 'order-1')`                                                          | one call per event with `eventId: Mira::eventIdFor('order-1:…')`, then `flush()` |
+| `Mode::Consentless`                                                                                 | `consent: Consent::denied()` on events from visitors without consent             |
+| `catch (InvalidArgumentException)` around `track()`                                                 | `onError: fn (MiraError $e) => …`                                                |

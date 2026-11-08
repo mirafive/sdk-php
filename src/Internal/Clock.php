@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace MiraFive;
+namespace MiraFive\Internal;
 
 /** @internal */
 final class Clock

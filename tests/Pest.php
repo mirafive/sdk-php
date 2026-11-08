@@ -3,16 +3,47 @@
 declare(strict_types=1);
 
 use MiraFive\Http\Response;
-use MiraFive\Tests\Support\FakeTransport;
+use MiraFive\Mira;
+use MiraFive\MiraError;
+use MiraFive\Testing\RecordingTransport;
 
 /**
- * @return array<array-key, mixed>
+ * A client on a recording transport, with problems collected in `$errors`.
+ *
+ * @param  list<MiraError>  $errors
+ * @param  array<string, mixed>  $options  more constructor arguments
  */
-function loadFixture(string $name): array
+function client(RecordingTransport $transport, array &$errors = [], array $options = []): Mira
 {
-    $decoded = json_decode((string) file_get_contents(__DIR__.'/Fixtures/'.$name), true, flags: JSON_THROW_ON_ERROR);
+    return new Mira(...[
+        'secretKey' => 'mira_sk_test',
+        'host' => 'https://ingest.test',
+        'onError' => function (MiraError $error) use (&$errors): void {
+            $errors[] = $error;
+        },
+        'transport' => $transport,
+        'flushOnShutdown' => false,
+        'sleep' => static function (): void {},
+        ...$options,
+    ]);
+}
 
-    return is_array($decoded) ? $decoded : [];
+/**
+ * The events of every request, in order.
+ *
+ * @return list<array<string, mixed>>
+ */
+function sent(RecordingTransport $transport): array
+{
+    $events = [];
+
+    foreach ($transport->requests() as $request) {
+        foreach ($request['batch']['events'] ?? [] as $event) {
+            $events[] = $event;
+        }
+    }
+
+    return $events;
 }
 
 /**
@@ -21,15 +52,14 @@ function loadFixture(string $name): array
  */
 function answer(int $status, ?array $body = null, array $headers = []): Response
 {
-    return new Response($status, $headers, $body === null ? '' : json_encode($body, JSON_THROW_ON_ERROR));
+    return new Response($status, $headers, $body === null ? '' : (string) json_encode($body));
 }
 
-function accepted(int $count = 1): Response
+/**
+ * @param  list<MiraError>  $errors
+ * @return list<string>
+ */
+function messages(array $errors): array
 {
-    return answer(202, ['batch' => '00000000-0000-4000-8000-000000000000', 'accepted' => $count, 'dropped' => 0]);
-}
-
-function transport(Response|Throwable ...$answers): FakeTransport
-{
-    return new FakeTransport(...$answers);
+    return array_map(static fn (MiraError $error): string => $error->getMessage(), $errors);
 }

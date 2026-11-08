@@ -1,62 +1,78 @@
 {
-    "name": "mirafive/sdk-php",
-    "description": "MIRA FIVE SDK for PHP",
-    "type": "library",
-    "license": "MIT",
-    "keywords": ["analytics", "privacy", "gdpr", "mirafive"],
-    "homepage": "https://mirafive.io",
-    "authors": [
-        {
-            "name": "Cloo GmbH",
-            "homepage": "https://mirafive.io"
-        }
-    ],
-    "require": {
-        "php": "^8.3",
-        "ext-json": "*"
-    },
-    "require-dev": {
-        "laravel/pint": "^1.32",
-        "pestphp/pest": "^4.7",
-        "phpstan/phpstan": "^2.3",
-        "psr/http-client": "^1.0",
-        "psr/http-factory": "^1.1",
-        "psr/log": "^3.0",
-        "psr/simple-cache": "^3.0"
-    },
-    "suggest": {
-        "ext-curl": "The default HTTP transport; without it, PHP streams are used.",
-        "psr/http-client": "Send through your own PSR-18 client (with Http\\Psr18Transport).",
-        "psr/http-factory": "PSR-17 factories for Http\\Psr18Transport.",
-        "psr/log": "Report delivery failures to a PSR-3 logger.",
-        "psr/simple-cache": "Share the delivery breaker between PHP processes with a PSR-16 cache."
-    },
-    "autoload": {
-        "psr-4": {
-            "MiraFive\\": "src/"
-        }
-    },
-    "autoload-dev": {
-        "psr-4": {
-            "MiraFive\\Tests\\": "tests/"
-        }
-    },
-    "scripts": {
-        "lint": "pint",
-        "analyse": "phpstan analyse --memory-limit=1G",
-        "test": "pest",
-        "check": [
-            "pint --test",
-            "phpstan analyse --memory-limit=1G --no-progress",
-            "pest"
-        ]
-    },
-    "config": {
-        "sort-packages": true,
-        "allow-plugins": {
-            "pestphp/pest-plugin": true
-        }
-    },
-    "minimum-stability": "stable",
-    "prefer-stable": true
+  "name": "mirafive/sdk-php",
+  "description": "MIRA FIVE server SDK for PHP: consent-aware events, revenue and touchpoints for revenue attribution",
+  "type": "library",
+  "license": "MIT",
+  "keywords": [
+    "analytics",
+    "attribution",
+    "revenue",
+    "gdpr",
+    "consent",
+    "mirafive"
+  ],
+  "homepage": "https://mirafive.io",
+  "support": {
+    "issues": "https://github.com/mirafive/sdk-php/issues",
+    "source": "https://github.com/mirafive/sdk-php"
+  },
+  "authors": [
+    {
+      "name": "Cloo GmbH",
+      "homepage": "https://mirafive.io"
+    }
+  ],
+  "require": {
+    "php": "^8.3",
+    "ext-json": "*"
+  },
+  "require-dev": {
+    "laravel/pint": "^1.32",
+    "pestphp/pest": "^4.7 || ^5.3",
+    "phpstan/phpstan": "^2.3",
+    "phpstan/phpstan-strict-rules": "^2.1",
+    "psr/clock": "^1.0",
+    "psr/http-client": "^1.0",
+    "psr/http-factory": "^1.1",
+    "psr/http-message": "^2.0",
+    "psr/log": "^3.0",
+    "psr/simple-cache": "^3.0"
+  },
+  "suggest": {
+    "ext-curl": "The default HTTP transport; without it, PHP streams are used.",
+    "psr/clock": "Pass a PSR-20 clock for event times and sent_at (tests, simulations).",
+    "psr/http-client": "Send through your own PSR-18 client (with Http\\Psr18Transport).",
+    "psr/http-factory": "PSR-17 factories for Http\\Psr18Transport.",
+    "psr/log": "Report delivery problems to a PSR-3 logger.",
+    "psr/simple-cache": "Share the delivery breaker between PHP processes with a PSR-16 cache."
+  },
+  "autoload": {
+    "psr-4": {
+      "MiraFive\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "MiraFive\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "lint": "pint",
+    "analyse": "phpstan analyse --memory-limit=1G",
+    "test": "pest",
+    "contract": "@php tests/contract/emit.php",
+    "check": [
+      "pint --test",
+      "phpstan analyse --memory-limit=1G --no-progress",
+      "pest"
+    ]
+  },
+  "config": {
+    "sort-packages": true,
+    "allow-plugins": {
+      "pestphp/pest-plugin": true
+    }
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
 }

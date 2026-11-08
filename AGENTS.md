@@ -1,31 +1,27 @@
-# AGENTS.md
+# Working on mirafive/sdk-php
 
-`mirafive/sdk-php`: the PHP SDK of MIRA FIVE. The public surface is fixed by the `mirafive/sdk-php` section of
-`API.md` in the protocol repository; the wire by `PROTOCOL.md`. Change those first.
+Part of the MIRA FIVE SDKs (github.com/mirafive). Read README.md for what the package does.
 
 ## Commands
 
-```bash
+```sh
 composer install
-composer check      # pint --test, phpstan (level max), pest
-composer lint       # pint, fixes formatting
-composer analyse    # phpstan
-composer test       # pest
+composer check    # Pint, PHPStan (max), Pest: exactly what CI runs on PHP 8.3 and 8.5
 ```
 
+`php tests/contract/emit.php | npx --yes @mirafive/protocol` checks what the SDK sends against the
+ingest's rules (CI does it too).
 ## Rules
 
-- PHP 8.3 syntax and functions only: no property hooks, asymmetric visibility, pipe operator, `new` chained without
-  parentheses, `array_any`/`array_all`/`array_find`, `mb_trim`. CI runs 8.3, 8.4 and 8.5.
-- No required Composer dependencies. PSR interfaces are `suggest` only and must not be needed unless used.
-- `track()` and `flush()` never throw for transport reasons; failures go through `Reporter`. Programming errors
-  (bad input, identifiers in consentless mode) throw `InvalidArgumentException`.
-- Retries resend the byte-identical body; never rebuild a batch between attempts.
-- `tests/Fixtures/*.json` are byte-identical copies from the protocol repository (`fixtures/`). Never edit them:
-  recopy and update the sha256 pins in `tests/Unit/FixturesTest.php`.
-- Tests never touch the network: use `tests/Support/FakeTransport`.
-- Comments only for non-obvious constraints, one or two lines.
+- No required Composer dependencies besides PHP; PSR packages are suggestions.
+- Event methods never throw into the host and never hold a request: report problems instead.
+- A secret key (`mira_sk_…`) never reaches a template; a public key (`mira_pk_…`) is refused
+  on the server.
+- The wire format is defined by `@mirafive/protocol` (github.com/mirafive/protocol). The Node SDK
+  is the reference for behaviour; `eventIdFor` must match its vectors.
+- Tests for every change. Comments explain why, briefly. Conventional Commits.
 
 ## Releasing
 
-To release, bump `Mira::VERSION` in `src/Mira.php`, add a `## X.Y.Z — YYYY-MM-DD` section to `CHANGELOG.md`, commit, then `git tag vX.Y.Z && git push origin vX.Y.Z`. `.github/workflows/release.yml` checks the version and the changelog, runs `composer check` and creates the GitHub release; Packagist picks the tag up by itself.
+Add a `## x.y.z — YYYY-MM-DD` section to CHANGELOG.md and bump `Mira::VERSION` and merge to main: the
+release workflow tags `vx.y.z` and creates the GitHub release; Packagist reads the tag.

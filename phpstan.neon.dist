@@ -1,3 +1,6 @@
+includes:
+    - vendor/phpstan/phpstan-strict-rules/rules.neon
+
 parameters:
     level: max
     phpVersion:
@@ -5,5 +8,6 @@ parameters:
         max: 80599
     paths:
         - src
-    # Public inputs are checked at runtime even where the PHPDoc already promises their shape.
+        - tests/contract
+    # Public input is checked at runtime even where the PHPDoc already promises its shape.
     treatPhpDocTypesAsCertain: false
