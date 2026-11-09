@@ -185,7 +185,7 @@ it('sends group events', function (): void {
     ]);
 });
 
-it('sends revenue with every ledger field', function (): void {
+it('sends revenue with every ledger field, and not the deprecated fee and tax', function (): void {
     $this->mira->revenue(
         amount: 999,
         currency: 'eur',
@@ -212,8 +212,6 @@ it('sends revenue with every ledger field', function (): void {
             'currency' => 'EUR',
             'entry_id' => 'revenuecat:txn_1',
             'kind' => 'subscription_payment',
-            'fee' => 150,
-            'tax' => 160,
             'product' => 'premium_monthly',
             'subscription' => [
                 'id' => 'sub_42',
@@ -223,7 +221,7 @@ it('sends revenue with every ledger field', function (): void {
                 'period_end' => '2027-02-08T00:00:00.000Z',
             ],
         ],
-    ])->and($refund['revenue'])->toBe([
+    ])->and($payment['revenue'])->not->toHaveKeys(['fee', 'tax'])->and($refund['revenue'])->toBe([
         'amount' => -999,
         'currency' => 'EUR',
         'entry_id' => 'revenuecat:txn_1:refund',
@@ -235,7 +233,6 @@ it('sends revenue with every ledger field', function (): void {
 it('refuses revenue that is not in integer minor units or misses a field', function (): void {
     $this->mira->revenue(amount: 19.99, currency: 'EUR');
     $this->mira->revenue(amount: 1999, currency: 'euro');
-    $this->mira->revenue(amount: 1999, currency: 'EUR', fee: 1.5);
     $this->mira->revenue(amount: 1999, currency: 'EUR', entryKind: 'payout');
     $this->mira->revenue(amount: 1999, currency: 'EUR', subscription: ['interval' => 'month']);
     $this->mira->revenue(amount: 1999, currency: 'EUR', subscription: ['id' => 's', 'interval' => 'fortnight']);
@@ -246,7 +243,6 @@ it('refuses revenue that is not in integer minor units or misses a field', funct
     expect(messages($this->errors))->toBe([
         'revenue: amount must be an integer in minor units (1999 for 19.99)',
         'revenue: currency must be an ISO 4217 code',
-        'revenue: fee must be an integer in minor units (1999 for 19.99)',
         'revenue: entryKind must be one of charge, subscription_payment, refund, dispute, dispute_won',
         'revenue: subscription.id is required',
         'revenue: subscription.interval must be one of day, week, month, year',

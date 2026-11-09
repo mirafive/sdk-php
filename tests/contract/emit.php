@@ -119,8 +119,6 @@ $mira->revenue(
     userId: 'user_42',
     entryId: 'stripe:in_123',
     entryKind: 'charge',
-    fee: 172,
-    tax: 782,
     product: 'lifetime',
     properties: ['coupon' => 'WELCOME10'],
     eventId: Mira::eventIdFor('order:123:paid'),
@@ -132,8 +130,6 @@ $mira->revenue(
     currency: 'EUR',
     userId: 'user_42',
     entryId: 'revenuecat:txn_1000000123',
-    fee: 150,
-    tax: 160,
     product: 'premium_quarterly',
     subscription: [
         'id' => 'sub_42',

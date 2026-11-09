@@ -41,7 +41,7 @@ use Throwable;
  */
 final class Mira
 {
-    public const string VERSION = '2.0.0';
+    public const string VERSION = '2.1.0';
 
     public const string LIBRARY = 'mirafive/sdk-php';
 
@@ -298,12 +298,12 @@ final class Mira
      * keys may send revenue. Pass `entryId` when the same money also arrives through a connector
      * (Stripe, RevenueCat), so it is counted once.
      *
-     * @param  int|float  $amount  integer minor units: cents for EUR and USD, yen for JPY; 1999 is 19.99 EUR. Negative for refunds.
+     * @param  int|float  $amount  what the customer paid, in integer minor units: cents for EUR and USD, yen for JPY; 1999 is 19.99 EUR. Negative for refunds.
      * @param  string  $currency  ISO 4217, for example EUR
      * @param  string|null  $entryId  the provider object this money belongs to (`stripe:in_123`, `crm:case-81`)
      * @param  'charge'|'subscription_payment'|'refund'|'dispute'|'dispute_won'|null  $entryKind  default: subscription_payment with a subscription, refund for a negative amount, else charge
-     * @param  int|float|null  $fee  processor fees or store commission, in minor units
-     * @param  int|float|null  $tax  tax included in the amount, in minor units
+     * @param  int|float|null  $fee  deprecated since 2.1.0: not sent, MIRA FIVE counts what the customer paid; removed in 3.0.0
+     * @param  int|float|null  $tax  deprecated since 2.1.0: not sent, MIRA FIVE counts what the customer paid; removed in 3.0.0
      * @param  string|null  $refundOf  for a refund or dispute: the entryId of the money it takes back
      * @param  string|null  $product  the product or plan, for example premium_monthly
      * @param  SubscriptionInput|null  $subscription  the subscription this payment renews, and the period it pays for
@@ -329,7 +329,7 @@ final class Mira
         Consent|string|array|null $consent = null,
         ?array $context = null,
     ): void {
-        $this->safely(function () use ($amount, $currency, $userId, $anonymousId, $entryId, $entryKind, $fee, $tax, $refundOf, $product, $subscription, $properties, $eventId, $timestamp, $consent, $context): void {
+        $this->safely(function () use ($amount, $currency, $userId, $anonymousId, $entryId, $entryKind, $refundOf, $product, $subscription, $properties, $eventId, $timestamp, $consent, $context): void {
             $revenue = ['amount' => self::minor('amount', $amount)];
 
             if (preg_match('/^[A-Za-z]{3}$/', $currency) !== 1) {
@@ -345,8 +345,6 @@ final class Mira
             $optional = [
                 'entry_id' => $entryId,
                 'kind' => $entryKind,
-                'fee' => $fee === null ? null : self::minor('fee', $fee),
-                'tax' => $tax === null ? null : self::minor('tax', $tax),
                 'refund_of' => $refundOf,
                 'product' => $product,
                 'subscription' => $subscription === null ? null : $this->subscription($subscription),

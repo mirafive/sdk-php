@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0 — 2026-11-09
+
+### Deprecated
+
+- `fee` and `tax` on `revenue()`. MIRA FIVE counts revenue as the customer paid it, VAT
+  included, so they are no longer sent or checked. Passing them still works and does nothing;
+  they are removed in 3.0.0.
+
 ## 2.0.0 — 2026-11-08
 
 A rewrite for the MIRA FIVE platform. The 1.x SDK spoke the retired v1 collector protocol; 2.0

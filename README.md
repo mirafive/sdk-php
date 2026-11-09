@@ -158,26 +158,22 @@ Money, as `$revenue`. Every call becomes one entry in the project's revenue ledg
 
 | Argument       | Meaning                                                                                                                                                            |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `amount`       | Integer minor units: cents for EUR and USD, yen for JPY. `1999` is 19.99 EUR. Negative for refunds                                                                 |
+| `amount`       | What the customer paid, VAT included, in integer minor units: cents for EUR and USD, yen for JPY. `1999` is 19.99 EUR. Negative for refunds                        |
 | `currency`     | ISO 4217, for example `EUR`                                                                                                                                        |
 | `entryId`      | The provider object this money belongs to (`stripe:in_123`, `crm:case-81`)                                                                                         |
 | `entryKind`    | `charge` (one-time, the default), `subscription_payment` (the default with `subscription`), `refund` (the default for a negative amount), `dispute`, `dispute_won` |
-| `fee`          | Processor fees or store commission, in minor units                                                                                                                 |
-| `tax`          | Tax included in `amount`, in minor units. Proceeds are the amount minus `fee` and `tax`                                                                            |
 | `refundOf`     | For a refund or dispute: the `entryId` of the money it takes back                                                                                                  |
 | `product`      | The product or plan, for example `premium_monthly`                                                                                                                 |
 | `subscription` | `['id' => …, 'interval' => 'day'\|'week'\|'month'\|'year', 'intervalCount' => 1..36, 'periodStart' => …, 'periodEnd' => …]`                                        |
 | `properties`   | Your own properties                                                                                                                                                |
 
 ```php
-// A subscription payment (the first one and every renewal), with store commission and VAT.
+// A subscription payment (the first one and every renewal).
 $mira->revenue(
     amount: 999,
     currency: 'EUR',
     userId: 'user_42',
     entryId: 'revenuecat:txn_1000000123',
-    fee: 150,
-    tax: 160,
     product: 'premium_monthly',
     subscription: ['id' => 'sub_42', 'interval' => 'month'], // pays from now for one month
 );
