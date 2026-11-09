@@ -15,6 +15,6 @@ concurrency:
 jobs:
   check:
     # Pint, PHPStan and Pest on PHP 8.3 (lowest dependencies) and 8.5 (highest)
-    uses: mirafive/.github/.github/workflows/php-sdk.yml@8fd9aaaaa1dbe9d0abc57f6174990f39cf6973bf
+    uses: mirafive/.github/.github/workflows/php-sdk.yml@6ae9b1ce535cc43b442c79de244f74b6ee207455
     with:
       contract: true
