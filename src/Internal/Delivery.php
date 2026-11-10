@@ -11,6 +11,7 @@ use MiraFive\Http\Transport;
 use MiraFive\Http\TransportException;
 use MiraFive\Mira;
 use MiraFive\MiraError;
+use MiraFive\PersonErasure;
 use Throwable;
 
 /**
@@ -79,6 +80,78 @@ final readonly class Delivery
         }
 
         throw new MiraError("{$url} answered HTTP {$response->status}, but not like a MIRA FIVE ingest: is MIRAFIVE_HOST right?", $response->status);
+    }
+
+    /**
+     * Erases one person (`DELETE /v1/persons/:userId`), retrying network errors, timeouts, 408, 429
+     * and 5xx like a batch: the erasure is idempotent. The user id may be personal data, so it
+     * stays out of every message.
+     *
+     * @throws MiraError `retryable` tells whether a later try may work
+     */
+    public function erase(string $userId): PersonErasure
+    {
+        $url = preg_replace('#/v1/batch$#', '/v1/persons/', $this->endpoint).rawurlencode($userId);
+        $where = preg_replace('#/v1/batch$#', '/v1/persons/:userId', $this->endpoint);
+
+        for ($attempt = 0; ; $attempt++) {
+            $outcome = $this->eraseOnce($url, $where ?? $url);
+
+            if ($outcome instanceof PersonErasure) {
+                return $outcome;
+            }
+
+            $wait = $this->backoff($attempt, $outcome);
+
+            if (! $outcome->retryable || $attempt >= $this->maxRetries || $wait === null) {
+                throw $outcome;
+            }
+
+            ($this->sleep)($wait);
+        }
+    }
+
+    private function eraseOnce(string $url, string $where): PersonErasure|MiraError
+    {
+        try {
+            $response = $this->transport->request('DELETE', $url, [
+                'Authorization' => 'Bearer '.$this->key,
+                'Accept' => 'application/json',
+                'User-Agent' => Mira::LIBRARY.'/'.Mira::VERSION.' (PHP '.PHP_VERSION.')',
+            ], null, $this->timeoutMs, min($this->connectTimeoutMs, $this->timeoutMs));
+        } catch (Throwable $exception) {
+            $timedOut = $exception instanceof TransportException && $exception->timedOut;
+
+            return new MiraError(
+                "erasure failed: cannot reach {$where} (".($timedOut ? 'timeout' : 'network error').')',
+                retryable: $exception instanceof TransportException,
+                previous: $exception,
+            );
+        }
+
+        $body = $response->json();
+
+        if ($response->status === 200) {
+            return PersonErasure::fromJson($body)
+                ?? new MiraError("{$where} answered HTTP 200, but not like a MIRA FIVE ingest: is MIRAFIVE_HOST right?", 200);
+        }
+
+        $reason = is_array($body) && is_string($body['error'] ?? null) ? $body['error'] : null;
+        $hint = match ($reason) {
+            'secret_key_required' => ': this is a public key, erasing needs the secret key (mira_sk_…)',
+            'unknown_key', 'missing_key' => ': check MIRAFIVE_SECRET_KEY, it must be a secret key (mira_sk_…) of this project',
+            'secret_key_in_browser' => ': the request looked like it came from a browser',
+            default => '',
+        };
+
+        return new MiraError(
+            "erasure failed: HTTP {$response->status}".($reason === null ? '' : " {$reason}").$hint,
+            $response->status,
+            [],
+            MiraError::retryableStatus($response->status),
+            self::retryAfterMs($response),
+            $reason,
+        );
     }
 
     public function send(Batch $batch, ?Budget $budget = null): BatchResult
