@@ -7,6 +7,7 @@ namespace MiraFive\Internal;
 use Closure;
 use MiraFive\BatchResult;
 use MiraFive\MiraError;
+use MiraFive\PersonErasure;
 use Throwable;
 use WeakReference;
 
@@ -128,6 +129,18 @@ final class Pipeline
         }
 
         return $this->delivery->check();
+    }
+
+    /**
+     * @throws MiraError
+     */
+    public function erase(string $userId): PersonErasure
+    {
+        if ($this->delivery === null) {
+            throw new MiraError('deletePerson needs the project\'s secret key (mira_sk_…): the client is disabled or has none (MIRAFIVE_SECRET_KEY)', reason: 'config');
+        }
+
+        return $this->delivery->erase($userId);
     }
 
     /**

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.0 — 2026-11-10
+
+### Added
+
+- `deletePerson($userId)`: erases one person (GDPR Art. 17) with the secret key and returns a
+  `PersonErasure` proof (`requestId`, rows `deleted` per table, `revenueKept`). Synchronous: it
+  throws a `MiraError` (`retryable`, `reason`) instead of queueing. Idempotent, so retrying is safe.
+  `RecordingTransport` answers it with an empty proof.
+
 ## 2.1.0 — 2026-11-09
 
 ### Deprecated

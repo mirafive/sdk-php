@@ -324,3 +324,92 @@ it('keeps the buffer shared between a client and its scopes', function (): void 
 
     expect($this->transport->requests())->toHaveCount(1);
 });
+
+it('erases a person with DELETE /v1/persons/:userId and returns the proof', function (): void {
+    $this->transport->answerNext(answer(200, ['request_id' => 'req-1', 'deleted' => ['events' => 2, 'persons' => 1], 'revenue_kept' => 1, 'completed_at' => '2026-11-10T12:00:00.000Z']));
+
+    $proof = $this->mira->deletePerson(' a/b@c.de ');
+    $request = $this->transport->requests()[0];
+
+    expect($proof->requestId)->toBe('req-1')
+        ->and($proof->deleted)->toBe(['events' => 2, 'persons' => 1])
+        ->and($proof->revenueKept)->toBe(1)
+        ->and($request['method'])->toBe('DELETE')
+        ->and($request['url'])->toBe('https://ingest.test/v1/persons/%20a%2Fb%40c.de%20')
+        ->and($request['headers']['Authorization'])->toBe('Bearer mira_sk_test')
+        ->and($request['body'])->toBe('')
+        ->and($this->errors)->toBe([]);
+});
+
+it('retries a busy or failing ingest when erasing, then succeeds', function (): void {
+    $this->transport->answerNext(
+        new TransportException('connection reset'),
+        answer(503, ['error' => 'erasure_failed']),
+        answer(200, ['request_id' => 'req-2', 'deleted' => [], 'revenue_kept' => 0, 'completed_at' => '']),
+    );
+
+    expect($this->mira->deletePerson('u1')->requestId)->toBe('req-2')
+        ->and($this->transport->requests())->toHaveCount(3);
+});
+
+it('throws a retryable error once the erasure retries are used up', function (): void {
+    $this->transport->answerNext(answer(429, ['error' => 'rate_limited']), answer(429, ['error' => 'rate_limited']), answer(429, ['error' => 'rate_limited']));
+
+    try {
+        $this->mira->deletePerson('u1');
+        $this->fail('expected a MiraError');
+    } catch (MiraError $error) {
+        expect($error->status)->toBe(429)
+            ->and($error->reason)->toBe('rate_limited')
+            ->and($error->retryable)->toBeTrue();
+    }
+
+    expect($this->transport->requests())->toHaveCount(3);
+});
+
+it('maps a refused key or id to errors that do not retry', function (int $status, string $reason): void {
+    $this->transport->answerNext(answer($status, ['error' => $reason]));
+
+    try {
+        $this->mira->deletePerson('u1');
+        $this->fail('expected a MiraError');
+    } catch (MiraError $error) {
+        expect($error->status)->toBe($status)
+            ->and($error->reason)->toBe($reason)
+            ->and($error->retryable)->toBeFalse()
+            ->and($error->getMessage())->toContain($reason);
+    }
+
+    expect($this->transport->requests())->toHaveCount(1);
+})->with([[401, 'unknown_key'], [403, 'secret_key_required'], [400, 'invalid_user_id']]);
+
+it('does not take an answer that is no erasure proof for a success', function (): void {
+    $this->transport->answerNext(answer(200, ['ok' => true]));
+
+    expect(fn () => $this->mira->deletePerson('u1'))->toThrow(MiraError::class, 'not like a MIRA FIVE ingest');
+});
+
+it('keeps the user id out of erasure error messages', function (): void {
+    $this->transport->answerNext(new TransportException('boom'), new TransportException('boom'), new TransportException('boom'));
+
+    try {
+        $this->mira->deletePerson('ada@example.com');
+        $this->fail('expected a MiraError');
+    } catch (MiraError $error) {
+        expect($error->getMessage())->not->toContain('ada@example.com')
+            ->and($error->getMessage())->not->toContain('ada%40example.com');
+    }
+});
+
+it('refuses a bad id, a public key and a disabled client without calling the ingest', function (): void {
+    foreach (['', str_repeat('x', 201), "bad\xB1utf8"] as $id) {
+        expect(fn () => $this->mira->deletePerson($id))->toThrow(MiraError::class);
+    }
+
+    $public = new Mira(secretKey: 'mira_pk_test', host: 'https://ingest.test', onError: static fn () => null, transport: $this->transport, flushOnShutdown: false);
+    $disabled = new Mira(secretKey: 'mira_sk_test', host: 'https://ingest.test', enabled: false, transport: $this->transport, flushOnShutdown: false);
+
+    expect(fn () => $public->deletePerson('u1'))->toThrow(MiraError::class, 'secret key')
+        ->and(fn () => $disabled->deletePerson('u1'))->toThrow(MiraError::class, 'secret key')
+        ->and($this->transport->requests())->toBe([]);
+});

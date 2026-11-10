@@ -41,7 +41,7 @@ use Throwable;
  */
 final class Mira
 {
-    public const string VERSION = '2.1.0';
+    public const string VERSION = '2.2.0';
 
     public const string LIBRARY = 'mirafive/sdk-php';
 
@@ -468,6 +468,34 @@ final class Mira
     public function checkConnection(): string
     {
         return $this->pipeline->check();
+    }
+
+    /**
+     * Erases one person (GDPR Art. 17) with the same effect as the dashboard's People page: their
+     * events, devices, traits, ids in other systems and touchpoints. Revenue stays in the totals,
+     * without the person. Unlike the event methods this one is synchronous and throws: it returns
+     * the proof once the person is gone, or throws a `MiraError` (see `retryable`).
+     *
+     * Idempotent: a person nothing is stored about, or one already erased, returns zero rows, so
+     * call it again after any failure. Events that name the person afterwards are refused for 30
+     * days (`onError` reports them as rejected): stop sending them from your side.
+     *
+     * `$userId` is the id you send in events, exactly: never trimmed, and an id longer than 200
+     * characters is refused instead of cut, so the wrong person is never erased.
+     *
+     * @throws MiraError `retryable` for a busy or unreachable ingest (429, 5xx, network); not for a wrong or public key, or a bad id
+     */
+    public function deletePerson(string $userId): PersonErasure
+    {
+        if ($userId === '') {
+            throw new MiraError('deletePerson: userId is required', reason: 'invalid_input');
+        }
+
+        if (Text::valid($userId) !== $userId || Text::cut($userId, self::MAX_ID) !== $userId) {
+            throw new MiraError('deletePerson: userId must be valid UTF-8 of at most '.self::MAX_ID.' characters', reason: 'invalid_input');
+        }
+
+        return $this->pipeline->erase($userId);
     }
 
     /**

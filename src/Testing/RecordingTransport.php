@@ -36,6 +36,11 @@ final class RecordingTransport implements Transport
 
         $answer = array_shift($this->answers);
         $events = is_array($batch) && is_array($batch['events'] ?? null) ? count($batch['events']) : 0;
+        // An erasure is answered with its proof: zero rows, like a person nothing is stored about.
+        $erasure = $method === 'DELETE' && str_contains($url, '/v1/persons/');
+        $answer ??= $erasure
+            ? new Response(200, ['content-type' => 'application/json'], (string) json_encode(['request_id' => '00000000-0000-7000-8000-000000000000', 'deleted' => ['events' => 0], 'revenue_kept' => 0, 'completed_at' => gmdate('Y-m-d\TH:i:s.000\Z')]))
+            : null;
         $answer ??= new Response(202, ['content-type' => 'application/json'], (string) json_encode(['accepted' => $events, 'duplicates' => 0, 'rejected' => []]));
         $this->requests[] = [
             'method' => $method,

@@ -281,6 +281,28 @@ Proves that the secret key and host work, without sending an event: it asks the 
 `GET /v1/check`, which stores and counts nothing. Returns the key's kind (`secret`).
 Throws a `MiraError` when the host cannot be reached or refuses the key.
 
+### `deletePerson(string $userId): PersonErasure`
+
+Erases one person (GDPR Art. 17) with the same effect as the dashboard's People page: events,
+devices, traits, ids in other systems and touchpoints. Revenue stays in the totals, without the
+person. `$userId` is the id you send in events, exactly (never trimmed; an id over 200 characters is
+refused, not cut).
+
+```php
+$proof = $mira->deletePerson('user_42');
+$proof->requestId;  // the deletion request, listed in the project's privacy log
+$proof->deleted;    // ['events' => 12, 'person_traits' => 3, …]
+$proof->revenueKept;
+```
+
+Unlike the event methods it is synchronous and throws a `MiraError` instead of reporting:
+`retryable` is true for a busy or unreachable ingest (429, 5xx, network; it retries twice itself)
+and false for a wrong or public key (`reason` `unknown_key`, `secret_key_required`) or a bad id.
+It is idempotent: a person nothing is stored about, or one already erased, returns zero rows, so
+call it again after any failure, for example from a queued job. Events that name the person
+afterwards are refused for 30 days (`onError` reports them as rejected, reason `erased`): stop
+sending them from your side. Needs the secret key.
+
 ### `MiraError`
 
 What `onError` receives, a `RuntimeException`:
