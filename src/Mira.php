@@ -41,7 +41,7 @@ use Throwable;
  */
 final class Mira
 {
-    public const string VERSION = '2.2.0';
+    public const string VERSION = '2.2.1';
 
     public const string LIBRARY = 'mirafive/sdk-php';
 
@@ -489,6 +489,11 @@ final class Mira
     {
         if ($userId === '') {
             throw new MiraError('deletePerson: userId is required', reason: 'invalid_input');
+        }
+
+        // HTTP clients fold these out of the path, so the request would not name the person.
+        if ($userId === '.' || $userId === '..') {
+            throw new MiraError('deletePerson: userId cannot be "." or ".." (it would not survive in a URL path)', reason: 'invalid_input');
         }
 
         if (Text::valid($userId) !== $userId || Text::cut($userId, self::MAX_ID) !== $userId) {

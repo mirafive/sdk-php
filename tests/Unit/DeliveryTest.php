@@ -390,19 +390,21 @@ it('does not take an answer that is no erasure proof for a success', function ()
 });
 
 it('keeps the user id out of erasure error messages', function (): void {
-    $this->transport->answerNext(new TransportException('boom'), new TransportException('boom'), new TransportException('boom'));
+    $leak = new TransportException('cURL error 6 for https://ingest.test/v1/persons/ada%40example.com');
+    $this->transport->answerNext($leak, $leak, $leak);
 
     try {
         $this->mira->deletePerson('ada@example.com');
         $this->fail('expected a MiraError');
     } catch (MiraError $error) {
         expect($error->getMessage())->not->toContain('ada@example.com')
-            ->and($error->getMessage())->not->toContain('ada%40example.com');
+            ->and($error->getMessage())->not->toContain('ada%40example.com')
+            ->and($error->getPrevious())->toBeNull();
     }
 });
 
 it('refuses a bad id, a public key and a disabled client without calling the ingest', function (): void {
-    foreach (['', str_repeat('x', 201), "bad\xB1utf8"] as $id) {
+    foreach (['', '.', '..', str_repeat('x', 201), "bad\xB1utf8"] as $id) {
         expect(fn () => $this->mira->deletePerson($id))->toThrow(MiraError::class);
     }
 

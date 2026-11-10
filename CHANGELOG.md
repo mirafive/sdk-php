@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.2.1 — 2026-11-10
+
+### Fixed
+
+- `deletePerson` no longer chains the transport's exception, whose message can name the whole
+  URL and so the user id, into the `MiraError` that ends up in your logs.
+- `deletePerson` refuses the user ids `.` and `..`, which HTTP clients fold out of a URL path.
+
 ## 2.2.0 — 2026-11-10
 
 ### Added

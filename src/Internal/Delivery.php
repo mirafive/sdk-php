@@ -122,10 +122,10 @@ final readonly class Delivery
         } catch (Throwable $exception) {
             $timedOut = $exception instanceof TransportException && $exception->timedOut;
 
+            // Not chained: a transport's message often names the whole URL, and with it the user id.
             return new MiraError(
                 "erasure failed: cannot reach {$where} (".($timedOut ? 'timeout' : 'network error').')',
                 retryable: $exception instanceof TransportException,
-                previous: $exception,
             );
         }
 
